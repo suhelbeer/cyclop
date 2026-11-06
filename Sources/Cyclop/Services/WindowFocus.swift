@@ -8,16 +8,22 @@ import ApplicationServices
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
+/// Builds an Accessibility element from its raw token. Private, used by AltTab
+/// for the same reason as here: an app's window list in Accessibility only has
+/// the windows on the desktop on screen, so this is the only way to reach a
+/// window on another desktop.
+@_silgen_name("_AXUIElementCreateWithRemoteToken")
+private func _AXUIElementCreateWithRemoteToken(_ token: CFData) -> Unmanaged<AXUIElement>?
+
 /// Switching to a specific window's own desktop, and making it the key window.
 ///
-/// Activating an app only takes macOS to the desktop the app was last used on,
-/// not to the one holding the window that was asked for: with Claude windows
-/// tiled on one desktop and a full-screen one on another, the wrong desktop
-/// came up and Accessibility could not see the window to raise it. SkyLight's
-/// "set front process, for this window" does go to that window's desktop. It
-/// is private, and it is what AltTab and similar switchers use; it is looked up
-/// at runtime, so if it ever disappears `focus` returns false and the caller
-/// falls back to plain activation.
+/// Measured on macOS 27 from a full-screen Safari desktop: this call alone
+/// reports success and makes the app frontmost, but the screen stays where it
+/// was. The desktop switch only happens once the window itself is raised
+/// through Accessibility afterwards, which is why `raise` finds the window
+/// even when it is on another desktop. It is private, and it is what AltTab
+/// and similar switchers use; it is looked up at runtime, so if it ever
+/// disappears `focus` returns false and the caller falls back to activation.
 @MainActor
 private enum SkyLight {
     private typealias SetFront = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt32) -> Int32
@@ -27,8 +33,11 @@ private enum SkyLight {
     private static let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
     private static let setFront: SetFront? = symbol("_SLPSSetFrontProcessWithOptions")
     private static let postEvent: PostEvent? = symbol("SLPSPostEventRecordTo")
+    /// Opened by path: a lookup in the default namespace only finds it while
+    /// something else happens to have loaded ApplicationServices.
     private static let getPSN: GetPSN? = {
-        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "GetProcessForPID") else { return nil }
+        let services = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_LAZY)
+        guard let services, let sym = dlsym(services, "GetProcessForPID") else { return nil }
         return unsafeBitCast(sym, to: GetPSN.self)
     }()
 
@@ -78,21 +87,22 @@ enum WindowFocus {
         AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
-    /// Brings one specific window to the front, over its siblings.
+    /// Brings one specific window to the front, over its siblings, switching
+    /// to its desktop first when it is on another one.
     ///
-    /// Three things have to happen, and the order matters. The app is activated
-    /// first: raising a window of an app that is not active only reorders it
-    /// inside that app's layer. Activating can in turn put the app's previous
-    /// front window back on top, so the window is raised again once that has
-    /// settled. And a window on another desktop is invisible to Accessibility
-    /// until macOS has switched to that desktop, so the raise is retried while
-    /// the switch animates, instead of giving up on the first miss.
+    /// The window's Accessibility element is found first, even on another
+    /// desktop. Then SkyLight makes it the app's front window and Accessibility
+    /// raises it: that raise is what makes macOS switch desktops. Without the
+    /// element (Accessibility off, or an app that does not expose it), the app
+    /// is activated instead, which goes to the desktop the app was last used
+    /// on. Either way the raise is retried while the switch animates, because
+    /// activating can put the app's previous front window back on top.
     static func raise(_ window: AttachedWindow) {
         guard let app = NSRunningApplication(processIdentifier: window.pid) else { return }
         if app.isHidden { app.unhide() }
-        // Go to this window's own desktop; plain activation is the fallback.
-        if !SkyLight.focus(windowID: window.id, pid: window.pid) { activate(app) }
-        _ = raiseWindow(window)
+        let element = hasAccess ? axWindow(for: window) : nil
+        if element == nil || !SkyLight.focus(windowID: window.id, pid: window.pid) { activate(app) }
+        if let element { raise(element, of: window.pid) }
         Task { @MainActor in
             var raised = 0
             for delay in [200, 300, 400, 500, 600] {
@@ -110,14 +120,18 @@ enum WindowFocus {
     @discardableResult
     private static func raiseWindow(_ window: AttachedWindow) -> Bool {
         guard hasAccess, let element = axWindow(for: window) else { return false }
+        raise(element, of: window.pid)
+        return true
+    }
+
+    private static func raise(_ element: AXUIElement, of pid: pid_t) {
         // Un-minimize first: raising a minimized window does nothing.
         AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-        let app = AXUIElementCreateApplication(window.pid)
+        let app = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, element)
         AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-        return true
     }
 
     /// Since macOS 14 a plain `activate()` from an app that is not in front
@@ -173,21 +187,60 @@ enum WindowFocus {
         return moved == .success
     }
 
+    /// Elements found by `searchWindow`, so the search runs once per window.
+    private static var found: [CGWindowID: AXUIElement] = [:]
+
     private static func axWindow(for window: AttachedWindow) -> AXUIElement? {
         let app = AXUIElementCreateApplication(window.pid)
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
-              let windows = value as? [AXUIElement]
-        else { return nil }
+        let windows = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success
+            ? (value as? [AXUIElement] ?? [])
+            : []
         for element in windows {
             var id: CGWindowID = 0
             if _AXUIElementGetWindow(element, &id) == .success, id == window.id { return element }
         }
-        // Fallback when the private call is unavailable: same title.
+        // Not in the list: on another desktop. Ask for it directly.
+        if let element = cachedOrSearched(window) { return element }
+        // Fallback when the private calls are unavailable: same title.
         return windows.first { element in
             var title: CFTypeRef?
             AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &title)
             return (title as? String) == window.title && !window.title.isEmpty
         }
+    }
+
+    private static func cachedOrSearched(_ window: AttachedWindow) -> AXUIElement? {
+        if let element = found[window.id] {
+            var id: CGWindowID = 0
+            if _AXUIElementGetWindow(element, &id) == .success, id == window.id { return element }
+            found[window.id] = nil
+        }
+        guard let element = searchWindow(window) else { return nil }
+        found[window.id] = element
+        return element
+    }
+
+    /// Tries the app's first element ids until one is this window. A token is
+    /// the pid, a zero, the tag "coco", then the element id; windows sit in the
+    /// first few dozen ids (Claude's at 42–52), and 1000 tries take ~20 ms.
+    private static func searchWindow(_ window: AttachedWindow) -> AXUIElement? {
+        var token = Data(count: 20)
+        token.withUnsafeMutableBytes { bytes in
+            bytes.storeBytes(of: Int32(window.pid), toByteOffset: 0, as: Int32.self)
+            bytes.storeBytes(of: Int32(0x636f_636f), toByteOffset: 8, as: Int32.self)
+        }
+        for elementID: UInt64 in 0..<1000 {
+            token.withUnsafeMutableBytes { $0.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self) }
+            guard let element = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue()
+            else { continue }
+            // A hung app would make each try wait for the default 6 s.
+            AXUIElementSetMessagingTimeout(element, 0.1)
+            var id: CGWindowID = 0
+            let result = _AXUIElementGetWindow(element, &id)
+            if result == .success, id == window.id { return element }
+            if result == .cannotComplete { return nil }
+        }
+        return nil
     }
 }
