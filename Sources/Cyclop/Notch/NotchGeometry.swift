@@ -91,9 +91,10 @@ struct NotchGeometry {
         case .compact: CGSize(width: 400, height: 126)
         case .standard: CGSize(width: 512, height: 162)
         case .tall: CGSize(width: 512, height: 354)
-        case .wide: CGSize(width: 600, height: 400)
+        // Five previews and the buttons beside them.
+        case .wide: CGSize(width: 660, height: 400)
         // A thumbnail and its name, 2 pt above and a little below.
-        case .wideRow(let extra): CGSize(width: 600, height: 92 + min(max(extra, 0), 300))
+        case .wideRow(let extra): CGSize(width: 660, height: 92 + min(max(extra, 0), 300))
         }
     }
 

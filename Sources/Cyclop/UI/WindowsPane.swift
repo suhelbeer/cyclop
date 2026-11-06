@@ -94,29 +94,25 @@ struct WindowsPane: View {
                         }
                     }
                 }
+                // More previews than fit: fade them out before the buttons, so
+                // the cut reads as "scrolls on" rather than as a clipped card.
+                .mask(alignment: .trailing) {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                        if rowOverflows {
+                            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 28)
+                        }
+                    }
+                }
                 .padding(.trailing, 58)
             }
-            if strip.isArranged || strip.note != nil || !strip.leftOut.isEmpty {
-                stripStatus
+            // The help lines give way to the large preview while it is down,
+            // so it sits right under the row instead of 35 pt lower.
+            if shown == nil {
+                statusLines
             }
-            if let note = store.fillNote {
-                Text(note)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.tertiary)
-            }
-            if !WindowFocus.hasAccess {
-                HStack(spacing: 6) {
-                    Text("Allow Accessibility so a click brings up that exact window")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.tertiary)
-                    Button(localized("Allow")) { WindowFocus.requestAccess() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Theme.secondary)
-                }
-            }
-            // Last, so the row and the lines under it stay put while the body
-            // grows below them to make room.
+            // Last, so the row stays put while the body grows below it.
             if let window = shown {
                 LargePreview(
                     window: window,
@@ -142,6 +138,37 @@ struct WindowsPane: View {
         // Pinned to the top: the body grows downward for the large preview,
         // and centred content would slide up under the pointer as it did.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Strip help and notes under the thumbnails. `WindowsTool.bodySize`
+    /// mirrors these conditions to size the short body, so keep them in step.
+    @ViewBuilder private var statusLines: some View {
+        if strip.isArranged || strip.note != nil || !strip.leftOut.isEmpty {
+            stripStatus
+        }
+        if let note = store.fillNote {
+            Text(note)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.tertiary)
+        }
+        if !WindowFocus.hasAccess {
+            HStack(spacing: 6) {
+                Text("Allow Accessibility so a click brings up that exact window")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.tertiary)
+                Button(localized("Allow")) { WindowFocus.requestAccess() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Theme.secondary)
+            }
+        }
+    }
+
+    /// Whether the previews run on past the buttons and need the fade.
+    private var rowOverflows: Bool {
+        let back: CGFloat = store.backTarget == nil ? 0 : 64 + 8
+        let room = NotchGeometry.paneSize(for: .wide).width - 58 - back
+        return CGFloat(ordered.count) * (Thumbnail.width + 8) - 8 > room
     }
 
     /// Horizontal centre of the thumbnail showing `window`, measured from the
