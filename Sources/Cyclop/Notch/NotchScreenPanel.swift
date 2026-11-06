@@ -227,9 +227,9 @@ final class NotchScreenPanel {
         vm.bodySizeChanges
             .sink { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, state.isOpen else { return }
-                    withAnimation(Theme.openAnimation) { state.objectWillChange.send() }
-                    refreshOpenRects()
+                    guard let self, self.state.isOpen else { return }
+                    withAnimation(Theme.openAnimation) { self.state.objectWillChange.send() }
+                    self.refreshOpenRects()
                 }
             }
             .store(in: &cancellables)
