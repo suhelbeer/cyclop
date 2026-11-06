@@ -40,8 +40,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticTermination</key><false/>
     <key>NSSupportsSuddenTermination</key><false/>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Cyclop читает название текущего трека и управляет воспроизведением в Apple Music и Spotify.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
     <key>NSCalendarsUsageDescription</key>
@@ -65,23 +63,30 @@ for lproj in "$ROOT"/Resources/*.lproj; do
     echo "    $(basename "$lproj")"
 done
 
-# Now Playing helper. Built here rather than by SwiftPM because it is not linked
-# into the app: it is loaded into /usr/bin/perl at runtime. See helper.m.
-echo "==> building Now Playing helper"
-clang -dynamiclib -fobjc-arc -O2 \
-    -mmacosx-version-min=15.0 \
-    -framework Foundation \
-    -o "$APP/Contents/Resources/libcyclopmedia.dylib" \
-    "$ROOT/Sources/CyclopMediaHelper/helper.m"
-
 # Подпись. Кем — решает CODESIGN_IDENTITY: пусто или «-» — ad-hoc, как для
 # любой локальной сборки; «Developer ID Application: …» — настоящая, с
 # hardened runtime и отметкой времени, как для релиза. Ключ и сертификат
 # в скрипте не живут, они в связке ключей того, кто выпускает, или в
 # секретах раннера (см. docs/signing.md).
 IDENTITY="${CODESIGN_IDENTITY:--}"
+# Локальная сборка с постоянной подписью. Ad-hoc подпись меняется с каждой
+# сборкой, и macOS каждый раз считает приложение новым: разрешение на запись
+# экрана и Универсальный доступ приходится выдавать заново. Самоподписанный
+# сертификат «Cyclop Dev» (Scripts/make-dev-cert.sh) даёт одно и то же
+# требование к подписи при любой пересборке, и выданное разрешение остаётся.
+# CODESIGN_LOCAL_IDENTITY — то же самое с любым другим сертификатом.
+LOCAL_IDENTITY=""
 if [ "$IDENTITY" = "-" ]; then
-    echo "==> ad-hoc signing"
+    if [ -n "${CODESIGN_LOCAL_IDENTITY:-}" ]; then
+        LOCAL_IDENTITY="$CODESIGN_LOCAL_IDENTITY"
+    elif security find-identity -p codesigning 2>/dev/null | grep -q '"Cyclop Dev"'; then
+        LOCAL_IDENTITY="Cyclop Dev"
+    fi
+fi
+if [ -n "$LOCAL_IDENTITY" ]; then
+    echo "==> local signing as $LOCAL_IDENTITY"
+elif [ "$IDENTITY" = "-" ]; then
+    echo "==> ad-hoc signing (permissions will reset on every rebuild: run Scripts/make-dev-cert.sh once)"
 else
     echo "==> signing as $IDENTITY"
 fi
@@ -108,12 +113,13 @@ xattr -cr "$APP"
 # бандл, про который codesign говорит «code object is not signed at all».
 # Заметить это можно было только по возвращающимся запросам TCC — то есть у
 # того, кто уже поставил приложение.
-if [ "$IDENTITY" = "-" ]; then
-    codesign --force --sign - "$APP/Contents/Resources/libcyclopmedia.dylib"
+if [ -n "$LOCAL_IDENTITY" ]; then
+    # Без hardened runtime и отметки времени — как ad-hoc, только с постоянным
+    # сертификатом. Нотаризовать такую сборку нельзя, и не нужно.
+    codesign --force --sign "$LOCAL_IDENTITY" "$APP"
+elif [ "$IDENTITY" = "-" ]; then
     codesign --force --sign - "$APP"
 else
-    codesign --force --timestamp --sign "$IDENTITY" \
-        "$APP/Contents/Resources/libcyclopmedia.dylib"
     codesign --force --timestamp --options runtime \
         --entitlements "$ROOT/Resources/Cyclop.entitlements" \
         --sign "$IDENTITY" "$APP"

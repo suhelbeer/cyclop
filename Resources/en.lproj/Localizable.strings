@@ -141,3 +141,23 @@
 "Keyboard and trackpad are locked" = "Keyboard and trackpad are locked";
 "Hold Esc or − for %d s" = "Hold Esc or − for %d s";
 "Unlocks by itself in %d s" = "Unlocks by itself in %d s";
+
+/* Windows */
+"Windows" = "Windows";
+"%@ · click to switch" = "%@ · click to switch";
+"All %@ windows" = "All %@ windows";
+"Allow" = "Allow";
+"Allow Accessibility so a click brings up that exact window" = "Allow Accessibility so a click brings up that exact window";
+"Allow Screen Recording" = "Allow Screen Recording";
+"Attach windows" = "Attach windows";
+"Back" = "Back";
+"Back to %@" = "Back to %@";
+"Needs Screen Recording. Previews stay on this Mac and are only\ntaken while this tab is open. Relaunch Cyclop after allowing it." = "Needs Screen Recording. Previews stay on this Mac and are only\ntaken while this tab is open. Relaunch Cyclop after allowing it.";
+"No windows attached" = "No windows attached";
+"Can't capture this window now, showing last frame" = "Can't capture this window now, showing last frame";
+"Open the Claude app, or attach any window with the button on the right" = "Open the Claude app, or attach any window with the button on the right";
+"Preview your windows here" = "Preview your windows here";
+"Allow Accessibility to resize windows" = "Allow Accessibility to resize windows";
+"%d of %d windows resized; the rest could not be reached" = "%d of %d windows resized; the rest could not be reached";
+"Restore window sizes" = "Restore window sizes";
+"Fill screen with attached windows" = "Fill screen with attached windows";

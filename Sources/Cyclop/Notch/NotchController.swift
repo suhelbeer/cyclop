@@ -34,24 +34,27 @@ final class NotchController {
         // The cleaning mode blacks out every display and swallows the pointer,
         // so each panel is in the same position as on a sleeping screen: nothing
         // to hover, nothing worth showing underneath the cover.
-        vm.keyboardLock.$isLocked
-            .removeDuplicates()
-            .sink { [weak self] locked in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    if locked {
-                        self.panels.values.forEach { $0.screensSlept() }
-                        self.cleaning.show(lock: vm.keyboardLock)
-                    } else {
-                        self.cleaning.hide()
-                        self.panels.values.forEach { $0.screensWoke() }
+        if let lock = vm.tool(UtilitiesTool.self)?.keyboardLock {
+            lock.$isLocked
+                .removeDuplicates()
+                .sink { [weak self] locked in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        if locked {
+                            self.panels.values.forEach { $0.screensSlept() }
+                            self.cleaning.show(lock: lock)
+                        } else {
+                            self.cleaning.hide()
+                            self.panels.values.forEach { $0.screensWoke() }
+                        }
                     }
                 }
-            }
-            .store(in: &cancellables)
+                .store(in: &cancellables)
+        }
 
-        vm.teleprompter.$isRunning
-            .removeDuplicates()
+        // A tool that holds the panel open (a running teleprompter) pins one
+        // screen; re-decide whenever any tool says that may have changed.
+        vm.holdChanges
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.updatePin() }
             }
@@ -67,8 +70,8 @@ final class NotchController {
     }
 
     func teardown() {
-        // Quitting mid-wipe must not leave the tap installed.
-        vm?.keyboardLock.unlock()
+        // `vm.stop()` stops every tool, which releases the keyboard lock, so
+        // quitting mid-wipe cannot leave the event tap installed.
         cleaning.hide()
         vm?.stop()
         panels.values.forEach { $0.teardown() }
@@ -134,13 +137,13 @@ final class NotchController {
     /// rebuild — the take ends, for the same reason the display going to sleep
     /// ends it: there is nobody left reading.
     private func updatePin() {
-        guard let vm, vm.teleprompter.isRunning else {
+        guard let vm, vm.anyToolHoldsOpen else {
             panels.values.forEach { $0.isPinned = false }
             return
         }
         guard !panels.values.contains(where: { $0.isPinned }) else { return }
         guard let owner = panels.values.first(where: { $0.state.isOpen }) else {
-            vm.teleprompter.suspend()
+            vm.suspendAll()
             return
         }
         owner.isPinned = true

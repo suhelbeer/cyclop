@@ -101,10 +101,10 @@ final class NotchScreenPanel {
         root.addSubview(hosting)
 
         root.onDragEntered = { [weak self] in
-            // A shelf that is switched off is not a drop target: the panel
+            // With no tool taking files the panel is not a drop target: it
             // does not open for a file it has nowhere to show.
-            guard let self, vm.isVisible(.shelf) else { return }
-            state.select(.shelf)
+            guard let self, let target = vm.dropTarget else { return }
+            state.select(target.id)
             state.isDropTargeted = true
             setOpen(true)
         }
@@ -182,12 +182,13 @@ final class NotchScreenPanel {
         // its full height with only its top 208 pt alive.
         vm.$tab
             .removeDuplicates()
-            .sink { [weak self] tab in
+            .sink { [weak self] id in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     // Leaving the tab that types gives the keyboard back, on
-                    // whichever screen was holding it.
-                    if !tab.needsKeyboard { self.state.wantsKeyboard = false }
+                    // whichever screen was holding it. `$tab` fires before the
+                    // property changes, so the new tool comes from `id`.
+                    if !(self.vm.tool(id)?.needsKeyboard ?? false) { self.state.wantsKeyboard = false }
                     guard self.state.isOpen else { return }
                     // A pass later: `openBodySize` reads `tab`, and this fires
                     // while the property is still being set.
@@ -271,7 +272,7 @@ final class NotchScreenPanel {
         // Closing ends the take, but only on the screen reading it: the pin is
         // a consequence of the script moving, so the script stops with the
         // panel it is moving on — and not with any other panel folding away.
-        if !open, isPinned { vm.teleprompter.suspend() }
+        if !open, isPinned { vm.suspendAll() }
         openGeneration += 1
         closeActiveRectWork?.cancel()
 

@@ -46,7 +46,7 @@ final class PanelState: ObservableObject {
     /// Asked of the tab rather than naming the teleprompter, so that a tab
     /// added for the same reason needs nothing here.
     var openBodySize: CGSize {
-        vm.tab.wantsTallBody ? geometry.tallExpandedSize : geometry.expandedSize
+        vm.activeTool.wantsTallBody ? geometry.tallExpandedSize : geometry.expandedSize
     }
 
     /// Size of the visible body for the current state.
@@ -59,9 +59,9 @@ final class PanelState: ObservableObject {
     ///
     /// The tab is shared and the keyboard is not: choosing on one screen
     /// changes what every screen shows, but only this one starts listening.
-    func select(_ tab: NotchViewModel.Tab) {
-        vm.tab = tab
-        if tab.needsKeyboard { wantsKeyboard = true }
+    func select(_ id: ToolID) {
+        vm.tab = id
+        if vm.activeTool.needsKeyboard { wantsKeyboard = true }
     }
 
     private func notify(_ changed: Bool) {
