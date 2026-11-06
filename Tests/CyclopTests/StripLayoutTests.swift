@@ -212,4 +212,28 @@ struct StripLayoutTests {
         #expect(!StripGesture.isOverTitleBar(CGPoint(x: 720, y: 50), of: frames))
     }
 
+
+    @Test func aRestingViewNeverLeavesAWindowHalfTuckedAtTheLeft() {
+        let cols = columns([1, 1, 1, 1])
+        let w = widths(cols)
+        let maxOffset = StripLayout.maxOffset(widths: w, available: area.width)
+        for stop in stride(from: CGFloat(0), through: maxOffset, by: 13) {
+            let rest = StripLayout.avoidPeek(stop, widths: w, available: area.width)
+            for (width, position) in zip(w, StripLayout.positions(w)) {
+                let right = position + width - rest
+                // Either out of sight, or showing at least what macOS keeps.
+                #expect(right <= 0.5 + StripLayout.gap || right >= StripLayout.leftKeep - 0.5 || position - rest >= 0)
+            }
+            // It only ever moves a little.
+            #expect(abs(rest - stop) <= StripLayout.leftKeep)
+        }
+    }
+
+    @Test func narrowerAndWiderStepByATwelfthWithinLimits() {
+        let step = (area.width / 12).rounded()
+        #expect(StripLayout.nudged(700, by: 1, in: area) == 700 + step)
+        #expect(StripLayout.nudged(700, by: -1, in: area) == 700 - step)
+        #expect(StripLayout.nudged(StripLayout.minCustomWidth, by: -1, in: area) == StripLayout.minCustomWidth)
+        #expect(StripLayout.nudged(area.width, by: 1, in: area) == area.width - 2 * gap)
+    }
 }

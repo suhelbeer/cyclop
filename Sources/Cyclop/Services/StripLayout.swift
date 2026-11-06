@@ -147,6 +147,30 @@ enum StripLayout {
         })
     }
 
+    /// How far ⌃⌥− and ⌃⌥= change a width: a twelfth of the screen.
+    static func nudged(_ width: CGFloat, by direction: Int, in area: CGRect) -> CGFloat {
+        let step = (area.width / 12).rounded()
+        return min(max(width + CGFloat(direction) * step, minCustomWidth), area.width - 2 * gap)
+    }
+
+    /// A resting view that would leave a window half tucked in at the left
+    /// edge moves a little, so that window is either out of sight or shows
+    /// the most macOS allows. Mid-swipe it can't be helped: a window showing
+    /// less than `leftKeep` is held at that much, and peeks out from behind
+    /// the next one until that one reaches the edge.
+    static func avoidPeek(_ offset: CGFloat, widths: [CGFloat], available: CGFloat) -> CGFloat {
+        for (width, position) in zip(widths, positions(widths)) {
+            let right = position + width - offset
+            guard position - offset < 0, right > 0.5, right < leftKeep else { continue }
+            // Hide it (its neighbour comes to the edge) or show `leftKeep` of it.
+            let hide = offset + right + gap
+            let show = offset - (leftKeep - right)
+            let target = (hide - offset) <= (offset - show) ? hide : show
+            return clamp(target, widths: widths, available: available)
+        }
+        return offset
+    }
+
     /// The column nearest the middle of the screen, which takes focus when a
     /// swipe ends.
     static func nearestToCenter(widths: [CGFloat], offset: CGFloat, available: CGFloat) -> Int {

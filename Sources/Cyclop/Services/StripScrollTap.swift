@@ -95,9 +95,10 @@ final class StripScrollTap {
         }
         guard type == .scrollWheel, let ns = NSEvent(cgEvent: event) else { return pass }
 
-        // Momentum follows its gesture and is never stepped on.
+        // The glide after the fingers lift goes where its gesture went.
         if !ns.momentumPhase.isEmpty {
             let mine = gesture == .strip
+            if mine { onScroll?(ns, false) }
             if ns.momentumPhase.contains(.ended) || ns.momentumPhase.contains(.cancelled) { gesture = .none }
             return !mine
         }
@@ -109,7 +110,7 @@ final class StripScrollTap {
             switch gesture {
             case .strip:
                 onScroll?(ns, false)
-                if ns.phase.contains(.ended) || ns.phase.contains(.cancelled) { gesture = .none }
+                // Stays the strip's through the glide that may follow.
                 return false
             case .passed:
                 if ns.phase.contains(.ended) || ns.phase.contains(.cancelled) { gesture = .none }

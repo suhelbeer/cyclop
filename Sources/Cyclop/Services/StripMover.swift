@@ -15,6 +15,10 @@ import QuartzCore
 /// do every frame).
 final class StripMover: @unchecked Sendable {
     private let queue = DispatchQueue(label: "cyclop.strip.mover", qos: .userInteractive)
+    /// Raising windows is slow (each is a round trip to the app) and must not
+    /// hold up moves, so it has its own queue and its own element cache.
+    private let raiseQueue = DispatchQueue(label: "cyclop.strip.raise", qos: .userInitiated)
+    private var raiseElements: [CGWindowID: AXUIElement] = [:]
     private var elements: [CGWindowID: AXUIElement] = [:]
     /// Where each window was last put.
     private var current: [CGWindowID: CGPoint] = [:]
@@ -59,7 +63,13 @@ final class StripMover: @unchecked Sendable {
     /// Raises `order` one after another, so each sits above the one before,
     /// then makes `focus` the key window on top of them all.
     func restack(_ order: [AttachedWindow], focus: AttachedWindow?) {
-        queue.async { [self] in
+        raiseQueue.async { [self] in
+            func element(_ window: AttachedWindow) -> AXUIElement? {
+                if let cached = raiseElements[window.id] { return cached }
+                let found = StripAX.element(for: window)
+                raiseElements[window.id] = found
+                return found
+            }
             for window in order {
                 guard let element = element(window) else { continue }
                 StripAX.raise(element, pid: window.pid, focus: false)
@@ -89,6 +99,7 @@ final class StripMover: @unchecked Sendable {
             elements = [:]
             current = [:]
         }
+        raiseQueue.async { [self] in raiseElements = [:] }
     }
 
     private func element(_ window: AttachedWindow) -> AXUIElement? {

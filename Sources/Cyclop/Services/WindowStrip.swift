@@ -61,6 +61,10 @@ final class WindowStrip: ObservableObject {
                                    default: Shortcut(keyCode: UInt32(kVK_ANSI_R), modifiers: Shortcut.control | Shortcut.option))
     let centerKey = Shortcut.stored("strip.shortcut.center",
                                     default: Shortcut(keyCode: UInt32(kVK_ANSI_C), modifiers: Shortcut.control | Shortcut.option))
+    let narrowerKey = Shortcut.stored("strip.shortcut.narrower",
+                                      default: Shortcut(keyCode: UInt32(kVK_ANSI_Minus), modifiers: Shortcut.control | Shortcut.option))
+    let widerKey = Shortcut.stored("strip.shortcut.wider",
+                                   default: Shortcut(keyCode: UInt32(kVK_ANSI_Equal), modifiers: Shortcut.control | Shortcut.option))
 
     private var windows: [CGWindowID: AttachedWindow] = [:]
     /// Frames from before Arrange, for Release.
@@ -93,6 +97,8 @@ final class WindowStrip: ObservableObject {
         /// End of a swipe: where the view stopped, and where the windows are.
         case rest(CGFloat, [CGWindowID: CGRect])
         case center
+        /// Focused window a step narrower (-1) or wider (+1).
+        case nudgeWidth(Int)
         /// A window's edge was dragged by hand.
         case resized(CGWindowID)
     }
@@ -122,6 +128,7 @@ final class WindowStrip: ObservableObject {
     func cycleWidth() { if isArranged { enqueue(.cycleWidth) } }
     /// Puts the focused window in the middle, its neighbours showing either side.
     func center() { if isArranged { enqueue(.center) } }
+    func nudgeWidth(_ direction: Int) { if isArranged { enqueue(.nudgeWidth(direction)) } }
     /// Puts a window at another place in the strip, from a drag in the previews.
     func move(_ id: CGWindowID, to index: Int) { if isArranged { enqueue(.move(id, index)) } }
 
@@ -144,16 +151,20 @@ final class WindowStrip: ObservableObject {
         return true
     }
 
+    /// Follows the fingers, then the glide macOS adds after they lift, like
+    /// any scrolling view. The strip comes to rest where the glide stops.
     private func follow(_ event: NSEvent, starting: Bool) {
-        // Momentum is not followed: the strip settles where the fingers lift.
-        guard event.momentumPhase.isEmpty else { return }
+        let gliding = !event.momentumPhase.isEmpty
+        // A glide belongs to the swipe before it; without one there is nothing to continue.
+        if gliding, swipe == nil { return }
         let begins = starting || event.phase.contains(.began) || event.phase.contains(.mayBegin)
         if begins, swipe != nil { endSwipe() }
         if swipe == nil {
             guard !event.phase.contains(.ended), !event.phase.contains(.cancelled) else { return }
             swipe = Swipe(startOffset: offset, horizontal: abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY))
             // Windows leaving on the left have to slide under their right-hand
-            // neighbours, so stack them that way round before anything moves.
+            // neighbours, so stack them that way round. On its own queue: it
+            // must not hold up the first moves.
             mover.restack(columns.compactMap { windows[$0.id] }, focus: nil)
             watchSwipe()
         }
@@ -173,15 +184,18 @@ final class WindowStrip: ObservableObject {
         }
         swipe = current
         mover.place(targets)
-        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { endSwipe() }
+        // Lifting the fingers starts the glide (if the swipe was quick enough
+        // to have one); the swipe ends with the glide, or shortly after the
+        // fingers if no glide comes.
+        if event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) { endSwipe() }
     }
 
-    /// A swipe whose end never arrives (the pointer left the notch mid-way)
-    /// still settles.
+    /// Ends a swipe once its events stop: after the fingers lift with no glide,
+    /// or when the pointer left the notch mid-way and the end never came.
     private func watchSwipe() {
         Task { @MainActor [weak self] in
             while let self, let swipe = self.swipe {
-                if Date().timeIntervalSince(swipe.lastEvent) > 0.35 {
+                if Date().timeIntervalSince(swipe.lastEvent) > 0.12 {
                     self.endSwipe()
                     return
                 }
@@ -250,6 +264,7 @@ final class WindowStrip: ObservableObject {
                 case .release: await performRelease()
                 case .rest(let stop, let frames): await performRest(stop, frames)
                 case .center: await performCenter()
+                case .nudgeWidth(let direction): await performNudgeWidth(direction)
                 case .resized(let id): await performResized(id)
                 }
             }
@@ -332,11 +347,23 @@ final class WindowStrip: ObservableObject {
     private func performRest(_ stop: CGFloat, _ frames: [CGWindowID: CGRect]) async {
         guard isArranged else { return }
         let widths = StripLayout.widths(columns, in: area)
-        offset = StripLayout.clamp(stop, widths: widths, available: area.width)
+        offset = StripLayout.avoidPeek(
+            StripLayout.clamp(stop, widths: widths, available: area.width), widths: widths, available: area.width
+        )
         focus = StripLayout.nearestToCenter(widths: widths, offset: offset, available: area.width)
         // The swipe moved the windows; slide on from where it left them.
         applied.merge(frames) { $1 }
         await layout(reveal: false)
+        raiseFocused()
+    }
+
+    private func performNudgeWidth(_ direction: Int) async {
+        guard isArranged else { return }
+        await followRealFocus()
+        let current = StripLayout.width(of: columns[focus], in: area)
+        columns[focus].custom = StripLayout.nudged(current, by: direction, in: area)
+        columns[focus].minWidth = 0
+        await layout()
         raiseFocused()
     }
 
@@ -527,6 +554,8 @@ final class WindowStrip: ObservableObject {
             (nextKey, { [weak self] in self?.step(1) }),
             (widthKey, { [weak self] in self?.cycleWidth() }),
             (centerKey, { [weak self] in self?.center() }),
+            (narrowerKey, { [weak self] in self?.nudgeWidth(-1) }),
+            (widerKey, { [weak self] in self?.nudgeWidth(1) }),
         ]
         var refused: [String] = []
         for (shortcut, action) in bindings {
