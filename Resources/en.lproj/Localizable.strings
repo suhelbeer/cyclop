@@ -165,7 +165,7 @@
 /* Windows: strip */
 "Arrange attached windows side by side in a strip" = "Arrange attached windows side by side in a strip";
 "Release: put the windows back where they were" = "Release: put the windows back where they were";
-"%@ %@ or scroll over the notch to move · %@ width · click a preview to go to it" = "%@ %@ or scroll over the notch to move · %@ width · click a preview to go to it";
+"%@ %@ or scroll over the notch to move · %@ width · drag previews to reorder" = "%@ %@ or scroll over the notch to move · %@ width · drag previews to reorder";
 "Not in strip: %@" = "Not in strip: %@";
 "Allow Accessibility to move windows" = "Allow Accessibility to move windows";
 "No attached window on this desktop can be arranged" = "No attached window on this desktop can be arranged";

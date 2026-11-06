@@ -55,6 +55,23 @@ enum StripLayout {
 
     static func nextPreset(after preset: Int) -> Int { (preset + 1) % presets.count }
 
+    /// Where a column dragged sideways in a row of previews lands: moved by
+    /// the number of whole slots the drag has crossed past halfway.
+    static func dropIndex(from index: Int, translation: CGFloat, slot: CGFloat, count: Int) -> Int {
+        guard count > 0, slot > 0 else { return index }
+        let moved = Int((translation / slot).rounded())
+        return min(max(index + moved, 0), count - 1)
+    }
+
+    /// `items` with the one at `from` taken out and put back at `to`.
+    static func moving<T>(_ items: [T], from: Int, to: Int) -> [T] {
+        guard items.indices.contains(from), items.indices.contains(to), from != to else { return items }
+        var result = items
+        let item = result.remove(at: from)
+        result.insert(item, at: to)
+        return result
+    }
+
     /// Which column to show first so that `focus` is fully on screen.
     ///
     /// The view moves as little as it can: it keeps `current` if the focused

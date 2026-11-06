@@ -72,7 +72,9 @@ final class WindowStrip: ObservableObject {
 
     /// One operation at a time, in order: a key held down queues steps
     /// faster than windows can move, and they are folded together.
-    private enum Op { case arrange([AttachedWindow]), step(Int), focus(CGWindowID), cycleWidth, release }
+    private enum Op {
+        case arrange([AttachedWindow]), step(Int), focus(CGWindowID), move(CGWindowID, Int), cycleWidth, release
+    }
     private var queue: [Op] = []
     private var draining = false
     /// When the strip last moved focus itself. Until the raise has landed, the
@@ -97,6 +99,8 @@ final class WindowStrip: ObservableObject {
     func step(_ delta: Int) { if isArranged { enqueue(.step(delta)) } }
     func focus(on id: CGWindowID) { if isArranged { enqueue(.focus(id)) } }
     func cycleWidth() { if isArranged { enqueue(.cycleWidth) } }
+    /// Puts a window at another place in the strip, from a drag in the previews.
+    func move(_ id: CGWindowID, to index: Int) { if isArranged { enqueue(.move(id, index)) } }
 
     /// A scroll over the notch. True when it was used.
     func scrolled(_ event: NSEvent) -> Bool {
@@ -157,6 +161,7 @@ final class WindowStrip: ObservableObject {
                     await performStep(total)
                 case .arrange(let list): await performArrange(list)
                 case .focus(let id): await performFocus(id)
+                case .move(let id, let index): await performMove(id, to: index)
                 case .cycleWidth: await performCycleWidth()
                 case .release: await performRelease()
                 }
@@ -236,6 +241,19 @@ final class WindowStrip: ObservableObject {
     private func performFocus(_ id: CGWindowID) async {
         guard let index = index(of: id) else { return }
         focus = index
+        await layout()
+        raiseFocused()
+    }
+
+    /// The focused window stays focused wherever it ends up; the view follows
+    /// it, so the window just moved may slide out of view if it went far.
+    private func performMove(_ id: CGWindowID, to index: Int) async {
+        guard let from = self.index(of: id) else { return }
+        let to = min(max(index, 0), columns.count - 1)
+        guard to != from else { return }
+        let focused = focusedID
+        columns = StripLayout.moving(columns, from: from, to: to)
+        focus = focused.flatMap(self.index(of:)) ?? focus
         await layout()
         raiseFocused()
     }

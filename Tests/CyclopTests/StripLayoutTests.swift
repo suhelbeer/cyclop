@@ -107,4 +107,22 @@ struct StripLayoutTests {
         #expect(stepper.step(dx: 30, dy: 0, precise: true, began: false, momentum: false) == 0)
         #expect(stepper.step(dx: 15, dy: 0, precise: true, began: false, momentum: false) == -1)
     }
+
+    @Test func aDragLandsOneSlotOverOncePastHalfway() {
+        // Slots of 120 pt, four previews, dragging the second one.
+        #expect(StripLayout.dropIndex(from: 1, translation: 50, slot: 120, count: 4) == 1)
+        #expect(StripLayout.dropIndex(from: 1, translation: 70, slot: 120, count: 4) == 2)
+        #expect(StripLayout.dropIndex(from: 1, translation: 250, slot: 120, count: 4) == 3)
+        #expect(StripLayout.dropIndex(from: 1, translation: -70, slot: 120, count: 4) == 0)
+        // Past either end it stops at the end.
+        #expect(StripLayout.dropIndex(from: 1, translation: 900, slot: 120, count: 4) == 3)
+        #expect(StripLayout.dropIndex(from: 1, translation: -900, slot: 120, count: 4) == 0)
+    }
+
+    @Test func movingKeepsEveryItemOnce() {
+        #expect(StripLayout.moving([1, 2, 3, 4], from: 0, to: 2) == [2, 3, 1, 4])
+        #expect(StripLayout.moving([1, 2, 3, 4], from: 3, to: 0) == [4, 1, 2, 3])
+        #expect(StripLayout.moving([1, 2, 3], from: 1, to: 1) == [1, 2, 3])
+        #expect(StripLayout.moving([1, 2, 3], from: 1, to: 7) == [1, 2, 3])
+    }
 }

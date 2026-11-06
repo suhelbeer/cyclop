@@ -164,7 +164,7 @@
 /* Окна: лента */
 "Arrange attached windows side by side in a strip" = "Выстроить закреплённые окна в ленту";
 "Release: put the windows back where they were" = "Отпустить: вернуть окна на прежние места";
-"%@ %@ or scroll over the notch to move · %@ width · click a preview to go to it" = "%@ %@ или прокрутка над вырезом — двигать · %@ — ширина · нажатие на превью — перейти";
+"%@ %@ or scroll over the notch to move · %@ width · drag previews to reorder" = "%@ %@ или прокрутка над вырезом — двигать · %@ — ширина · перетащите превью, чтобы поменять порядок";
 "Not in strip: %@" = "Не в ленте: %@";
 "Allow Accessibility to move windows" = "Разрешите Универсальный доступ, чтобы двигать окна";
 "No attached window on this desktop can be arranged" = "На этом рабочем столе нет закреплённых окон, которые можно выстроить";

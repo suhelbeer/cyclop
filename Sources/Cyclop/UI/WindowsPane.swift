@@ -9,6 +9,9 @@ struct WindowsPane: View {
     @State private var editing = false
     /// The window in the large preview.
     @State private var focused: CGWindowID?
+    /// The preview being dragged to reorder the strip, and how far.
+    @State private var dragging: CGWindowID?
+    @State private var dragX: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -69,6 +72,10 @@ struct WindowsPane: View {
                                 isFocused: window.id == shown?.id,
                                 strip: stripState(of: window)
                             )
+                            .offset(x: window.id == dragging ? dragX : shift(for: window))
+                            .zIndex(window.id == dragging ? 1 : 0)
+                            .opacity(window.id == dragging ? 0.85 : 1)
+                            .gesture(reorder(window), including: strip.index(of: window.id) != nil ? .all : .subviews)
                             .onHover { inside in
                                 if inside {
                                     focused = window.id
@@ -188,6 +195,42 @@ struct WindowsPane: View {
 
     // MARK: - Strip
 
+    /// One preview plus the gap after it.
+    private static let slot = Thumbnail.width + 8
+
+    /// Dragging a preview sideways moves its window along the strip. The
+    /// others step aside as it passes, so the drop place is visible.
+    private func reorder(_ window: AttachedWindow) -> some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { value in
+                if dragging == nil { dragging = window.id }
+                guard dragging == window.id else { return }
+                withAnimation(.easeOut(duration: 0.12)) { dragX = value.translation.width }
+            }
+            .onEnded { value in
+                defer {
+                    dragging = nil
+                    dragX = 0
+                }
+                guard let from = strip.index(of: window.id) else { return }
+                let to = StripLayout.dropIndex(
+                    from: from, translation: value.translation.width, slot: Self.slot, count: strip.columns.count
+                )
+                strip.move(window.id, to: to)
+            }
+    }
+
+    /// How far a preview steps aside for the one being dragged.
+    private func shift(for window: AttachedWindow) -> CGFloat {
+        guard let dragged = dragging, dragged != window.id,
+              let from = strip.index(of: dragged), let index = strip.index(of: window.id)
+        else { return 0 }
+        let to = StripLayout.dropIndex(from: from, translation: dragX, slot: Self.slot, count: strip.columns.count)
+        if from < to, index > from, index <= to { return -Self.slot }
+        if to < from, index >= to, index < from { return Self.slot }
+        return 0
+    }
+
     private func stripState(of window: AttachedWindow) -> Thumbnail.StripState {
         guard strip.isArranged else { return .none }
         if strip.index(of: window.id) == nil { return .out }
@@ -199,7 +242,7 @@ struct WindowsPane: View {
         VStack(alignment: .leading, spacing: 2) {
             if strip.isArranged {
                 Text(localized(
-                    "%@ %@ or scroll over the notch to move · %@ width · click a preview to go to it",
+                    "%@ %@ or scroll over the notch to move · %@ width · drag previews to reorder",
                     strip.previousKey.label, strip.nextKey.label, strip.widthKey.label
                 ))
             }
@@ -315,6 +358,7 @@ struct WindowsPane: View {
 }
 
 private struct Thumbnail: View {
+    static let width: CGFloat = 112
     static let height: CGFloat = 70
     let window: AttachedWindow
     let image: CGImage?
@@ -328,7 +372,7 @@ private struct Thumbnail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             PreviewFrame(image: image, dimmed: isStale)
-                .frame(width: 112, height: Self.height)
+                .frame(width: Self.width, height: Self.height)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(isFocused ? Color.white.opacity(0.7) : Theme.hairline, lineWidth: 1)
@@ -338,7 +382,7 @@ private struct Thumbnail: View {
                 .font(.system(size: 9.5))
                 .foregroundStyle(isFocused ? .white : Theme.secondary)
                 .lineLimit(1)
-                .frame(width: 112, alignment: .leading)
+                .frame(width: Self.width, alignment: .leading)
         }
         .contentShape(Rectangle())
         .help(localized("%@ · click to switch", window.label))
