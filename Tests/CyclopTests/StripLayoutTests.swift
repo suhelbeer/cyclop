@@ -254,4 +254,16 @@ struct StripLayoutTests {
         #expect(StripLayout.nudged(StripLayout.minCustomWidth, by: -1, in: area) == StripLayout.minCustomWidth)
         #expect(StripLayout.nudged(area.width, by: 1, in: area) == area.width - 2 * gap)
     }
+
+    @Test func everyStripShortcutHasAReadableLabel() {
+        let strip = [
+            Shortcut(keyCode: 0x7B, modifiers: Shortcut.control | Shortcut.option),
+            Shortcut(keyCode: 0x7C, modifiers: Shortcut.control | Shortcut.option),
+            Shortcut(keyCode: 0x0F, modifiers: Shortcut.control | Shortcut.option),
+            Shortcut(keyCode: 0x08, modifiers: Shortcut.control | Shortcut.option),
+            Shortcut(keyCode: 0x1B, modifiers: Shortcut.control | Shortcut.option),
+            Shortcut(keyCode: 0x18, modifiers: Shortcut.control | Shortcut.option),
+        ]
+        #expect(strip.map(\.label) == ["⌃⌥←", "⌃⌥→", "⌃⌥R", "⌃⌥C", "⌃⌥−", "⌃⌥="])
+    }
 }
