@@ -76,6 +76,8 @@ final class WindowStrip: ObservableObject {
     private var offset: CGFloat = 0
     private var area: CGRect = .zero
     private var hotKeys: [UInt32] = []
+    /// Apps whose new windows join the strip on their own.
+    private var joinApps: Set<String> = []
     private let mover = StripMover()
 
     /// One operation at a time, in order: a key held down queues steps
@@ -89,6 +91,10 @@ final class WindowStrip: ObservableObject {
         case nudgeWidth(Int)
         /// A window's edge was dragged by hand.
         case resized(CGWindowID)
+        /// A new window of an attached app joins at the right end.
+        case join(AttachedWindow)
+        /// Some window closed; drop the ones that are gone.
+        case prune
     }
     private var queue: [Op] = []
     private var draining = false
@@ -101,7 +107,8 @@ final class WindowStrip: ObservableObject {
 
     /// Lines up `windows` (the tab's order) or, if already arranged, lines
     /// them up again keeping each window's width and original frame.
-    func arrange(_ windows: [AttachedWindow]) {
+    func arrange(_ windows: [AttachedWindow], joining apps: Set<String> = []) {
+        joinApps = apps
         guard WindowFocus.hasAccess else {
             WindowFocus.requestAccess()
             note = localized("Allow Accessibility to move windows")
@@ -198,6 +205,8 @@ final class WindowStrip: ObservableObject {
                 case .center: await performCenter()
                 case .nudgeWidth(let direction): await performNudgeWidth(direction)
                 case .resized(let id): await performResized(id)
+                case .join(let window): await performJoin(window)
+                case .prune: await performPrune()
                 }
             }
             draining = false
@@ -260,8 +269,11 @@ final class WindowStrip: ObservableObject {
         registerHotKeys()
         await layout()
         raiseFocused()
-        StripResizeWatcher.shared.onResize = { [weak self] id in self?.enqueue(.resized(id)) }
-        StripResizeWatcher.shared.watch(columns.compactMap { windows[$0.id] })
+        let watcher = StripWatcher.shared
+        watcher.onResize = { [weak self] id in self?.enqueue(.resized(id)) }
+        watcher.onCreate = { [weak self] pid, id in self?.created(pid: pid, id: id) }
+        watcher.onClose = { [weak self] in self?.enqueue(.prune) }
+        watcher.watch(columns.compactMap { windows[$0.id] }, apps: joinApps)
     }
 
     private func performStep(_ delta: Int) async {
@@ -303,6 +315,55 @@ final class WindowStrip: ObservableObject {
         guard isArranged else { return }
         await followRealFocus()
         await layout(center: true)
+        raiseFocused()
+    }
+
+    /// A window opened in an attached app: if it is an ordinary window on this
+    /// desktop, it joins the strip.
+    private func created(pid: pid_t, id: CGWindowID) {
+        guard isArranged, index(of: id) == nil,
+              let app = NSRunningApplication(processIdentifier: pid),
+              let bundle = app.bundleIdentifier, joinApps.contains(bundle)
+        else { return }
+        let name = app.localizedName ?? bundle
+        Task { @MainActor [weak self] in
+            let frame = await Task.detached { StripAX.joinableFrame(pid: pid, id: id) }.value
+            guard let self, let frame else { return }
+            let window = AttachedWindow(
+                id: id, pid: pid, bundleID: bundle, appName: name, title: "", frame: frame, isOnScreen: true
+            )
+            enqueue(.join(window))
+        }
+    }
+
+    /// Joins at the right end at the usual width, and the view slides over to it.
+    private func performJoin(_ window: AttachedWindow) async {
+        guard isArranged, index(of: window.id) == nil else { return }
+        windows[window.id] = window
+        if original[window.id] == nil { original[window.id] = window.frame }
+        columns.append(StripLayout.Column(id: window.id))
+        leftOut.removeAll { $0.id == window.id }
+        focus = columns.count - 1
+        await layout()
+        raiseFocused()
+        StripWatcher.shared.add(window)
+    }
+
+    /// Closed windows leave the strip, and the rest close the gap.
+    private func performPrune() async {
+        guard isArranged else { return }
+        let gone = columns.map(\.id).filter { id in
+            let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]]
+            return info?.isEmpty ?? true
+        }
+        guard !gone.isEmpty else { return }
+        for id in gone {
+            original[id] = nil
+            windows[id] = nil
+        }
+        drop(gone)
+        guard isArranged else { return }
+        await layout()
         raiseFocused()
     }
 
@@ -535,7 +596,7 @@ final class WindowStrip: ObservableObject {
         for id in hotKeys { HotKeys.shared.unregister(id) }
         hotKeys = []
         StripScrollTap.shared.stop()
-        StripResizeWatcher.shared.stop()
+        StripWatcher.shared.stop()
         StripFollower.shared.update(StripSnapshot())
         mover.forget()
         columns = []
@@ -597,6 +658,21 @@ enum StripAX {
 
     /// Brings the window to the front of its app; with `focus`, also makes it
     /// the app's focused window.
+    /// The frame of a just-opened window, if it is one the strip can take: an
+    /// ordinary window (not a panel or dialog), not minimized or full screen,
+    /// and big enough to be a real window.
+    static func joinableFrame(pid: pid_t, id: CGWindowID) -> CGRect? {
+        let probe = AttachedWindow(id: id, pid: pid, bundleID: "", appName: "", title: "", frame: .zero, isOnScreen: true)
+        guard let element = element(for: probe) else { return nil }
+        var subrole: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole)
+        guard (subrole as? String) == (kAXStandardWindowSubrole as String),
+              !bool(element, kAXMinimizedAttribute), !bool(element, "AXFullScreen"),
+              let frame = frame(of: element), frame.width >= 300, frame.height >= 200
+        else { return nil }
+        return frame
+    }
+
     static func frame(of window: AttachedWindow) -> CGRect? {
         element(for: window).flatMap(frame(of:))
     }
@@ -663,54 +739,109 @@ enum StripAX {
     }
 }
 
-/// Notices a strip window's edge being dragged by hand, through Accessibility
-/// notifications from the window's app, and reports it once the drag has
-/// settled. The strip's own resizes are reported too; it tells them apart.
+/// Accessibility notifications from the strip's apps: a window's edge dragged
+/// by hand (reported once the drag pauses), a new window opened, a window
+/// closed. The strip's own resizes are reported too; it tells them apart.
 @MainActor
-final class StripResizeWatcher {
-    static let shared = StripResizeWatcher()
+final class StripWatcher {
+    static let shared = StripWatcher()
 
     var onResize: ((CGWindowID) -> Void)?
-    private var observers: [AXObserver] = []
-    private var pending: [CGWindowID: Task<Void, Never>] = [:]
+    /// A window opened in a watched app, once it has had a moment to settle.
+    var onCreate: ((pid_t, CGWindowID) -> Void)?
+    /// Some window of a watched app closed.
+    var onClose: (() -> Void)?
 
-    func watch(_ windows: [AttachedWindow]) {
+    private var observers: [pid_t: AXObserver] = [:]
+    private var pending: [CGWindowID: Task<Void, Never>] = [:]
+    private var closing: Task<Void, Never>?
+
+    /// Watches `windows` and, for new windows, every running app in `apps`.
+    func watch(_ windows: [AttachedWindow], apps: Set<String>) {
         stop()
-        for (pid, group) in Dictionary(grouping: windows, by: \.pid) {
-            var created: AXObserver?
-            let status = AXObserverCreate(pid, { _, element, _, _ in
-                var id: CGWindowID = 0
-                guard stripWindowID(element, &id) == .success else { return }
-                // The observer's source is on the main run loop.
-                MainActor.assumeIsolated { StripResizeWatcher.shared.changed(id) }
-            }, &created)
-            guard status == .success, let observer = created else { continue }
-            for window in group {
-                guard let element = StripAX.element(for: window) else { continue }
-                AXObserverAddNotification(observer, element, kAXResizedNotification as CFString, nil)
+        var pids = Set(windows.map(\.pid))
+        for bundle in apps {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundle) {
+                pids.insert(app.processIdentifier)
             }
-            CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-            observers.append(observer)
         }
+        for pid in pids {
+            guard let observer = observer(for: pid) else { continue }
+            let app = AXUIElementCreateApplication(pid)
+            if apps.isEmpty == false {
+                AXObserverAddNotification(observer, app, kAXWindowCreatedNotification as CFString, nil)
+            }
+        }
+        for window in windows { add(window) }
+    }
+
+    /// Watches one more window, for resizes and closing.
+    func add(_ window: AttachedWindow) {
+        guard let observer = observer(for: window.pid), let element = StripAX.element(for: window) else { return }
+        AXObserverAddNotification(observer, element, kAXResizedNotification as CFString, nil)
+        AXObserverAddNotification(observer, element, kAXUIElementDestroyedNotification as CFString, nil)
     }
 
     func stop() {
-        for observer in observers {
+        for observer in observers.values {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
         }
-        observers = []
+        observers = [:]
         pending.values.forEach { $0.cancel() }
         pending = [:]
+        closing?.cancel()
+        closing = nil
     }
 
-    /// A drag sends a resize for every step; report only once it pauses.
-    private func changed(_ id: CGWindowID) {
+    private func observer(for pid: pid_t) -> AXObserver? {
+        if let existing = observers[pid] { return existing }
+        var created: AXObserver?
+        let status = AXObserverCreate(pid, { _, element, name, _ in
+            let kind = name as String
+            var id: CGWindowID = 0
+            let known = stripWindowID(element, &id) == .success
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            // The observer's source is on the main run loop.
+            MainActor.assumeIsolated {
+                StripWatcher.shared.notified(kind, id: known ? id : nil, pid: pid)
+            }
+        }, &created)
+        guard status == .success, let observer = created else { return nil }
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        observers[pid] = observer
+        return observer
+    }
+
+    private func notified(_ kind: String, id: CGWindowID?, pid: pid_t) {
+        switch kind {
+        case kAXResizedNotification:
+            guard let id else { return }
+            // A drag sends a resize for every step; report once it pauses.
+            debounce(id, 0.35) { [weak self] in self?.onResize?(id) }
+        case kAXWindowCreatedNotification:
+            guard let id else { return }
+            // A new window is often moved and sized by its app right after.
+            debounce(id, 0.4) { [weak self] in self?.onCreate?(pid, id) }
+        case kAXUIElementDestroyedNotification:
+            closing?.cancel()
+            closing = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+                self?.onClose?()
+            }
+        default:
+            break
+        }
+    }
+
+    private func debounce(_ id: CGWindowID, _ seconds: Double, _ action: @escaping @MainActor () -> Void) {
         pending[id]?.cancel()
         pending[id] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled, let self else { return }
-            pending[id] = nil
-            onResize?(id)
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.pending[id] = nil
+            action()
         }
     }
 }
