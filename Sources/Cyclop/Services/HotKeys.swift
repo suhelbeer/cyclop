@@ -40,6 +40,7 @@ struct Shortcut: Equatable {
         kVK_ANSI_U: "U", kVK_ANSI_V: "V", kVK_ANSI_W: "W", kVK_ANSI_X: "X", kVK_ANSI_Y: "Y",
         kVK_ANSI_Z: "Z", kVK_ANSI_LeftBracket: "[", kVK_ANSI_RightBracket: "]",
         kVK_ANSI_Comma: ",", kVK_ANSI_Period: ".", kVK_Space: "Space",
+        kVK_ANSI_Minus: "−", kVK_ANSI_Equal: "=",
     ]
 }
 

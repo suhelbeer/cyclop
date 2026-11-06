@@ -27,6 +27,9 @@ struct StripSnapshot: Sendable {
     /// Top of the strip's screen, in Accessibility coordinates.
     var screenTop: CGFloat = 0
     var offset: CGFloat = 0
+    /// Bumped by every publish, so the follower can tell whether main has
+    /// caught up with the last swipe.
+    var version = 0
 
     var isArranged: Bool { !columns.isEmpty }
 
@@ -75,6 +78,10 @@ final class StripFollower: @unchecked Sendable {
     }
     private var swipe: Swipe?
     private var generation = 0
+    /// Where the last swipe came to rest, until main has published a strip
+    /// that includes it. A swipe that starts sooner (main busy drawing the
+    /// notch) must start from there, not from where the one before began.
+    private var rested: (offset: CGFloat, version: Int)?
     private var stepper = ScrollStepper()
 
     /// How long without events before a swipe counts as over: after the
@@ -82,7 +89,11 @@ final class StripFollower: @unchecked Sendable {
     private static let idleEnd: TimeInterval = 0.12
 
     func update(_ snapshot: StripSnapshot) {
-        lock.withLock { shared = snapshot }
+        lock.withLock {
+            var next = snapshot
+            next.version = shared.version + 1
+            shared = next
+        }
     }
 
     var snapshot: StripSnapshot { lock.withLock { shared } }
@@ -111,7 +122,9 @@ final class StripFollower: @unchecked Sendable {
         if swipe == nil {
             guard sample.phase != .ended, sample.phase != .cancelled else { return }
             generation += 1
-            swipe = Swipe(startOffset: strip.offset, horizontal: abs(sample.dx) >= abs(sample.dy), generation: generation)
+            var start = strip.offset
+            if let rested, rested.version == strip.version { start = rested.offset }
+            swipe = Swipe(startOffset: start, horizontal: abs(sample.dx) >= abs(sample.dy), generation: generation)
             // Windows leaving on the left slide under their right-hand neighbours.
             mover?.restack(strip.columns.compactMap { strip.windows[$0.id] }, focus: nil)
         }
@@ -149,6 +162,13 @@ final class StripFollower: @unchecked Sendable {
         guard let done = swipe else { return }
         swipe = nil
         let stop = done.startOffset - done.travel
+        // The same resting place main will work out.
+        let strip = snapshot
+        let widths = StripLayout.widths(strip.columns, in: strip.area)
+        let resting = StripLayout.avoidPeek(
+            StripLayout.clamp(stop, widths: widths, available: strip.area.width), widths: widths, available: strip.area.width
+        )
+        rested = (resting, strip.version)
         let frames = done.frames
         if let onRest { Task { @MainActor in onRest(stop, frames) } }
     }
