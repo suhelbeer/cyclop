@@ -91,8 +91,9 @@ struct NotchGeometry {
         case .compact: CGSize(width: 400, height: 126)
         case .standard: CGSize(width: 512, height: 162)
         case .tall: CGSize(width: 512, height: 354)
-        case .wide: CGSize(width: 600, height: 354)
-        case .wideStrip: CGSize(width: 600, height: 126)
+        case .wide: CGSize(width: 600, height: 400)
+        // A thumbnail and its name, 2 pt above and a little below.
+        case .wideRow(let extra): CGSize(width: 600, height: 92 + min(max(extra, 0), 300))
         }
     }
 
@@ -114,7 +115,7 @@ struct NotchGeometry {
     /// once and never resized: what is clickable is decided by the active rect.
     var maxBodySize: CGSize {
         let row = pillSize(left: Self.maxIconsPerSide, right: Self.maxIconsPerSide).width
-        let all = ToolBodySize.allCases.map { bodySize(for: $0, rowWidth: row) }
+        let all = ToolBodySize.fixed.map { bodySize(for: $0, rowWidth: row) }
         return CGSize(width: all.map(\.width).max() ?? row, height: all.map(\.height).max() ?? notchSize.height)
     }
 

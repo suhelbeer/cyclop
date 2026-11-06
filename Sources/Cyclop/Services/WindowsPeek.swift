@@ -13,6 +13,8 @@ final class WindowsPeek: ObservableObject {
     static let shared = WindowsPeek()
 
     @Published private(set) var window: CGWindowID?
+    /// The attach list is showing in place of the previews; it needs the room.
+    @Published var editing = false
 
     /// Long enough to cross from a thumbnail down to the preview, short
     /// enough that pointing away reads as a decision.
@@ -42,13 +44,20 @@ final class WindowsPeek: ObservableObject {
         pendingClear?.cancel()
         pendingClear = nil
         window = nil
+        editing = false
     }
 
-    /// Fires after `window` has changed.
-    var changes: AnyPublisher<Void, Never> {
-        $window.removeDuplicates().dropFirst()
-            .receive(on: DispatchQueue.main)
-            .map { _ in () }
-            .eraseToAnyPublisher()
+    /// Fires after anything that can change the Windows tab's height has.
+    /// Coarse on purpose — the store republishes on every thumbnail refresh —
+    /// and narrowed by whoever listens to the size actually changing.
+    func changes(store: WindowStore) -> AnyPublisher<Void, Never> {
+        Publishers.MergeMany(
+            $window.map { _ in () }.eraseToAnyPublisher(),
+            $editing.map { _ in () }.eraseToAnyPublisher(),
+            WindowStrip.shared.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            store.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+        )
+        .receive(on: DispatchQueue.main)
+        .eraseToAnyPublisher()
     }
 }

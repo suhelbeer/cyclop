@@ -17,7 +17,7 @@ enum ToolRail { case left, right }
 
 /// How much room a tool's pane asks for under the icon row. See
 /// `NotchGeometry.paneSize(for:)` for the numbers.
-enum ToolBodySize: CaseIterable {
+enum ToolBodySize: Equatable {
     /// A short strip: one block of content, like Now Playing.
     case compact
     case standard
@@ -25,8 +25,14 @@ enum ToolBodySize: CaseIterable {
     case tall
     /// Wider and taller, for rows of window previews with a large one below.
     case wide
-    /// As wide, one row of previews high.
-    case wideStrip
+    /// As wide, one row of previews high, plus whatever lines of status sit
+    /// under the row right now — measured by the tool, so there is no black
+    /// band kept in reserve for lines that are not showing.
+    case wideRow(extraHeight: CGFloat)
+
+    /// The sizes that do not depend on a tool's state; the window is cut to
+    /// fit the largest of them.
+    static let fixed: [ToolBodySize] = [.compact, .standard, .tall, .wide]
 }
 
 /// What the panel hands a tool when it draws the tool's pane.

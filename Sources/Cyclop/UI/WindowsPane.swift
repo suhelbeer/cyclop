@@ -7,7 +7,6 @@ struct WindowsPane: View {
     @ObservedObject var store: WindowStore
     @ObservedObject private var strip = WindowStrip.shared
     @ObservedObject private var peek = WindowsPeek.shared
-    @State private var editing = false
     /// The preview being dragged to reorder the strip, and how far.
     @State private var dragging: CGWindowID?
     @State private var dragX: CGFloat = 0
@@ -17,7 +16,7 @@ struct WindowsPane: View {
             Group {
                 if !store.hasScreenAccess {
                     accessPrompt
-                } else if editing {
+                } else if peek.editing {
                     attachList
                 } else if store.attached.isEmpty {
                     emptyState
@@ -27,7 +26,7 @@ struct WindowsPane: View {
             }
             if store.hasScreenAccess {
                 HStack(spacing: 6) {
-                    if !editing && !store.attached.isEmpty {
+                    if !peek.editing && !store.attached.isEmpty {
                         // One layout at a time: each restores its own saved frames.
                         if !store.isFilled { stripToggle }
                         if !strip.isArranged { fillToggle }
@@ -327,9 +326,9 @@ struct WindowsPane: View {
 
     private var editToggle: some View {
         Button {
-            editing.toggle()
+            peek.editing.toggle()
         } label: {
-            if editing {
+            if peek.editing {
                 Text(localized("Done"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white)
@@ -344,7 +343,7 @@ struct WindowsPane: View {
             }
         }
         .buttonStyle(.plain)
-        .help(localized(editing ? "Done" : "Attach windows"))
+        .help(localized(peek.editing ? "Done" : "Attach windows"))
     }
 
     // MARK: - Empty and permission states
@@ -464,14 +463,19 @@ private struct LargePreview: View {
 
     var body: some View {
         GeometryReader { geo in
-            let box = fitted(in: geo.size)
+            let box = fitted(in: CGSize(width: geo.size.width, height: geo.size.height - Self.labelHeight))
             // Under its thumbnail, held inside the pane at either end, so it
             // reads as that window's and not as a picture floating mid-panel.
             let x = min(max(anchorX - box.width / 2, 0), max(geo.size.width - box.width, 0))
-            PreviewFrame(image: image, dimmed: isStale)
-                .frame(width: box.width, height: box.height)
-                .overlay(alignment: .bottomLeading) { label }
-                .offset(x: x)
+            VStack(alignment: .leading, spacing: 0) {
+                PreviewFrame(image: image, dimmed: isStale)
+                    .frame(width: box.width, height: box.height)
+                // Under the picture rather than over it, where it hid the
+                // bottom of the window it names.
+                label
+                    .frame(width: max(box.width, 160), height: Self.labelHeight, alignment: .leading)
+            }
+            .offset(x: min(x, max(geo.size.width - max(box.width, 160), 0)))
         }
         // The whole area below the row answers the pointer, not only the
         // picture: the way down from a thumbnail to the preview should not
@@ -479,23 +483,26 @@ private struct LargePreview: View {
         .contentShape(Rectangle())
     }
 
+    private static let labelHeight: CGFloat = 18
+
     private var label: some View {
         HStack(spacing: 6) {
             Text(window.appName)
                 .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(.white)
             if !window.title.isEmpty, window.title != window.appName {
-                Text(window.title).font(.system(size: 10.5))
+                Text(window.title)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.secondary)
             }
             if isStale {
-                Text("Can't capture this window now, showing last frame").font(.system(size: 10))
+                Text("Can't capture this window now, showing last frame")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.tertiary)
             }
         }
-        .foregroundStyle(.white)
         .lineLimit(1)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Capsule().fill(Color.black.opacity(0.6)))
-        .padding(8)
+        .truncationMode(.tail)
     }
 }
 
