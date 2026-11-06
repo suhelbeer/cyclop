@@ -186,9 +186,10 @@ final class WindowStore: ObservableObject {
         Task { @MainActor in
             defer { refreshing = false }
             await refreshWindows()
-            // A window off screen (minimized, hidden, another desktop) keeps
-            // its last frame: capturing it again would only return blank.
-            for window in attached where window.isOnScreen || thumbnails[window.id] == nil {
+            // Windows on another desktop are captured too: ScreenCaptureKit
+            // cannot see them, `capture` falls back to `OffSpaceCapture`.
+            // Anything that still returns nothing keeps its last frame.
+            for window in attached {
                 if let image = await capture(window.id, size: Self.thumbSize) {
                     thumbnails[window.id] = image
                 }
@@ -258,6 +259,9 @@ final class WindowStore: ObservableObject {
 
     private func capture(_ id: CGWindowID, size: CGFloat) async -> CGImage? {
         guard let window = scWindows[id] else { return nil }
+        // ScreenCaptureKit fails (-3811) for a window on a Space that is not
+        // on screen — e.g. Safari full screen in front of tiled Claude windows.
+        guard window.isOnScreen else { return await offSpaceFrame(id, size: size) }
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
         let scale = size / max(window.frame.width, window.frame.height, 1)
@@ -265,6 +269,15 @@ final class WindowStore: ObservableObject {
         config.height = max(1, Int(window.frame.height * scale))
         config.showsCursor = false
         config.ignoreShadowsSingleWindow = true
-        return try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        if let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) {
+            return image
+        }
+        return await offSpaceFrame(id, size: size)
+    }
+
+    private func offSpaceFrame(_ id: CGWindowID, size: CGFloat) async -> CGImage? {
+        await Task.detached(priority: .utility) {
+            SendableImage(image: OffSpaceCapture.image(of: id, maxEdge: size))
+        }.value.image
     }
 }
