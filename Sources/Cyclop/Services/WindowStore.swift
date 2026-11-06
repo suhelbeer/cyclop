@@ -238,7 +238,7 @@ final class WindowStore: ObservableObject {
     /// Arrange ⇄ Release for the strip.
     func toggleStrip() {
         let strip = WindowStrip.shared
-        strip.isArranged ? strip.release() : strip.arrange(attached)
+        strip.isArranged ? strip.release() : strip.arrange(attached, joining: attachedApps)
     }
 
     /// A click on a preview: inside an arranged strip it scrolls there,
