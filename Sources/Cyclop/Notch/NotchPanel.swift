@@ -70,12 +70,15 @@ final class NotchPanel: NSPanel {
     /// mouse down first — so the one place a click on the field can reliably
     /// be noticed is here, where every event the window receives passes.
     var onPress: (() -> Void)?
+    /// Raised for scroll events; true swallows the event.
+    var onScroll: ((NSEvent) -> Bool)?
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, editingAction(for: event) != nil, perform(event) { return }
         // Before `super`, so the window is already key by the time the click
         // reaches the field and places a caret.
         if event.type == .leftMouseDown { onPress?() }
+        if event.type == .scrollWheel, onScroll?(event) == true { return }
         super.sendEvent(event)
     }
 

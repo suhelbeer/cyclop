@@ -61,6 +61,9 @@ protocol NotchTool: AnyObject {
     /// Accepts files dropped on the panel. The first visible tool that says yes wins.
     var acceptsFileDrops: Bool { get }
     func acceptDrop(_ urls: [URL]) -> Bool
+    /// A scroll over the notch itself (the top band of the panel, open or
+    /// folded). Return true to take it; the first visible tool that does wins.
+    func notchScrolled(_ event: NSEvent) -> Bool
 
     // MARK: Lifecycle (all optional)
     /// Background work. Called when the tool is on and the app starts, or when
@@ -92,6 +95,7 @@ extension NotchTool {
     var holdsPanelOpenChanges: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
     var acceptsFileDrops: Bool { false }
     func acceptDrop(_ urls: [URL]) -> Bool { false }
+    func notchScrolled(_ event: NSEvent) -> Bool { false }
 
     func start() {}
     func stop() {}

@@ -161,3 +161,20 @@
 "%d of %d windows resized; the rest could not be reached" = "%d of %d windows resized; the rest could not be reached";
 "Restore window sizes" = "Restore window sizes";
 "Fill screen with attached windows" = "Fill screen with attached windows";
+
+/* Windows: strip */
+"Arrange attached windows side by side in a strip" = "Arrange attached windows side by side in a strip";
+"Release: put the windows back where they were" = "Release: put the windows back where they were";
+"%@ %@ or scroll over the notch to move · %@ width · click a preview to go to it" = "%@ %@ or scroll over the notch to move · %@ width · click a preview to go to it";
+"Not in strip: %@" = "Not in strip: %@";
+"Allow Accessibility to move windows" = "Allow Accessibility to move windows";
+"No attached window on this desktop can be arranged" = "No attached window on this desktop can be arranged";
+"Shortcut taken by another app: %@" = "Shortcut taken by another app: %@";
+"minimized" = "minimized";
+"full screen" = "full screen";
+"app hidden" = "app hidden";
+"on another desktop" = "on another desktop";
+"not responding" = "not responding";
+"opened after Arrange" = "opened after Arrange";
+"In view" = "In view";
+"Parked at the edge" = "Parked at the edge";

@@ -131,6 +131,15 @@ final class NotchScreenPanel {
             state.wantsKeyboard = true
         }
 
+        // Scrolling over the notch itself, not the body below it, goes to the
+        // tools first: the body has lists of its own to scroll.
+        panel.onScroll = { [weak self] event in
+            guard let self else { return false }
+            let band = geometry.windowSize.height - geometry.notchSize.height - 6
+            guard event.locationInWindow.y >= band else { return false }
+            return vm.notchScrolled(event)
+        }
+
         panel.contentView = root
         panel.ignoresMouseEvents = true
         panel.setFrame(geometry.windowFrame, display: false)
