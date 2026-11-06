@@ -140,3 +140,21 @@
 "Keyboard and trackpad are locked" = "Клавиатура и трекпад заблокированы";
 "Hold Esc or − for %d s" = "Держи Esc или − %d с";
 "Unlocks by itself in %d s" = "Само снимется через %d с";
+
+/* Claude sessions */
+"Claude" = "Claude";
+"Claude Code hooks" = "Хуки Claude Code";
+"Cyclop adds a small hook to ~/.claude/settings.json that writes each\nsession's status to a local file. A backup of the file is kept." = "Cyclop добавит небольшой хук в ~/.claude/settings.json, который пишет\nстатус каждой сессии в локальный файл. Копия файла сохраняется.";
+"Needs you" = "Ждёт тебя";
+"No Claude Code sessions" = "Сессий Claude Code нет";
+"Quiet" = "Затихла";
+"Working" = "Работает";
+"Reinstall" = "Переустановить";
+"Remove hooks" = "Убрать хуки";
+"Setup" = "Настройка";
+"Running sessions show up after their next prompt" = "Запущенные сессии появятся после следующего запроса";
+"See your Claude Code sessions here" = "Здесь видны сессии Claude Code";
+"Sessions started before setup appear after their next prompt.\nClicking a session in Terminal or iTerm2 jumps to its tab; macOS asks\nonce for permission to control that app." = "Сессии, начатые до настройки, появятся после следующего запроса.\nНажатие на сессию в Terminal или iTerm2 открывает её вкладку; macOS\nодин раз спросит разрешение на управление этим приложением.";
+"Set up" = "Настроить";
+"~/.claude/settings.json is not valid JSON, so Cyclop left it alone." = "~/.claude/settings.json — не валидный JSON, Cyclop его не тронул.";
+"New" = "Новая";

@@ -141,3 +141,21 @@
 "Keyboard and trackpad are locked" = "Keyboard and trackpad are locked";
 "Hold Esc or − for %d s" = "Hold Esc or − for %d s";
 "Unlocks by itself in %d s" = "Unlocks by itself in %d s";
+
+/* Claude sessions */
+"Claude" = "Claude";
+"Claude Code hooks" = "Claude Code hooks";
+"Cyclop adds a small hook to ~/.claude/settings.json that writes each\nsession's status to a local file. A backup of the file is kept." = "Cyclop adds a small hook to ~/.claude/settings.json that writes each\nsession's status to a local file. A backup of the file is kept.";
+"Needs you" = "Needs you";
+"No Claude Code sessions" = "No Claude Code sessions";
+"Quiet" = "Quiet";
+"Working" = "Working";
+"Reinstall" = "Reinstall";
+"Remove hooks" = "Remove hooks";
+"Setup" = "Setup";
+"Running sessions show up after their next prompt" = "Running sessions show up after their next prompt";
+"See your Claude Code sessions here" = "See your Claude Code sessions here";
+"Sessions started before setup appear after their next prompt.\nClicking a session in Terminal or iTerm2 jumps to its tab; macOS asks\nonce for permission to control that app." = "Sessions started before setup appear after their next prompt.\nClicking a session in Terminal or iTerm2 jumps to its tab; macOS asks\nonce for permission to control that app.";
+"Set up" = "Set up";
+"~/.claude/settings.json is not valid JSON, so Cyclop left it alone." = "~/.claude/settings.json is not valid JSON, so Cyclop left it alone.";
+"New" = "New";

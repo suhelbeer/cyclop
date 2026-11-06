@@ -193,7 +193,7 @@ private struct SessionRow: View {
         case .working: localized("Working")
         case .done: localized("Done")
         case .quiet: localized("Quiet")
-        case .idle: localized("Ready")
+        case .idle: localized("New")
         }
     }
 
