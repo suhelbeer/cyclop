@@ -69,8 +69,24 @@ done
 # в скрипте не живут, они в связке ключей того, кто выпускает, или в
 # секретах раннера (см. docs/signing.md).
 IDENTITY="${CODESIGN_IDENTITY:--}"
+# Локальная сборка с постоянной подписью. Ad-hoc подпись меняется с каждой
+# сборкой, и macOS каждый раз считает приложение новым: разрешение на запись
+# экрана и Универсальный доступ приходится выдавать заново. Самоподписанный
+# сертификат «Cyclop Dev» (Scripts/make-dev-cert.sh) даёт одно и то же
+# требование к подписи при любой пересборке, и выданное разрешение остаётся.
+# CODESIGN_LOCAL_IDENTITY — то же самое с любым другим сертификатом.
+LOCAL_IDENTITY=""
 if [ "$IDENTITY" = "-" ]; then
-    echo "==> ad-hoc signing"
+    if [ -n "${CODESIGN_LOCAL_IDENTITY:-}" ]; then
+        LOCAL_IDENTITY="$CODESIGN_LOCAL_IDENTITY"
+    elif security find-identity -p codesigning 2>/dev/null | grep -q '"Cyclop Dev"'; then
+        LOCAL_IDENTITY="Cyclop Dev"
+    fi
+fi
+if [ -n "$LOCAL_IDENTITY" ]; then
+    echo "==> local signing as $LOCAL_IDENTITY"
+elif [ "$IDENTITY" = "-" ]; then
+    echo "==> ad-hoc signing (permissions will reset on every rebuild: run Scripts/make-dev-cert.sh once)"
 else
     echo "==> signing as $IDENTITY"
 fi
@@ -97,7 +113,11 @@ xattr -cr "$APP"
 # бандл, про который codesign говорит «code object is not signed at all».
 # Заметить это можно было только по возвращающимся запросам TCC — то есть у
 # того, кто уже поставил приложение.
-if [ "$IDENTITY" = "-" ]; then
+if [ -n "$LOCAL_IDENTITY" ]; then
+    # Без hardened runtime и отметки времени — как ad-hoc, только с постоянным
+    # сертификатом. Нотаризовать такую сборку нельзя, и не нужно.
+    codesign --force --sign "$LOCAL_IDENTITY" "$APP"
+elif [ "$IDENTITY" = "-" ]; then
     codesign --force --sign - "$APP"
 else
     codesign --force --timestamp --options runtime \
