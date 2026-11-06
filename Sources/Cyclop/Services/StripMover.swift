@@ -56,6 +56,20 @@ final class StripMover: @unchecked Sendable {
         }
     }
 
+    /// Raises `order` one after another, so each sits above the one before,
+    /// then makes `focus` the key window on top of them all.
+    func restack(_ order: [AttachedWindow], focus: AttachedWindow?) {
+        queue.async { [self] in
+            for window in order {
+                guard let element = element(window) else { continue }
+                StripAX.raise(element, pid: window.pid, focus: false)
+            }
+            if let focus, let element = element(focus) {
+                StripAX.raise(element, pid: focus.pid, focus: true)
+            }
+        }
+    }
+
     /// Stops any slide, waiting until it has, so a resize that follows does
     /// not race it. Records where windows were put by someone else.
     func stop(noting positions: [CGWindowID: CGPoint] = [:]) {
@@ -77,8 +91,15 @@ final class StripMover: @unchecked Sendable {
         }
     }
 
+    private func element(_ window: AttachedWindow) -> AXUIElement? {
+        if let cached = elements[window.id] { return cached }
+        let found = StripAX.element(for: window)
+        elements[window.id] = found
+        return found
+    }
+
     private func set(_ point: CGPoint, _ window: AttachedWindow) {
-        guard let element = elements[window.id] ?? StripAX.element(for: window) else { return }
+        guard let element = element(window) else { return }
         var value = point
         guard let position = AXValueCreate(.cgPoint, &value) else { return }
         if AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, position) == .success {

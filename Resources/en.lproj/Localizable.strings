@@ -165,7 +165,6 @@
 /* Windows: strip */
 "Arrange attached windows side by side in a strip" = "Arrange attached windows side by side in a strip";
 "Release: put the windows back where they were" = "Release: put the windows back where they were";
-"%@ %@ or swipe sideways with ⌃⌥ or on a title bar · %@ width · drag previews to reorder" = "%@ %@ or swipe sideways with ⌃⌥ or on a title bar · %@ width · drag previews to reorder";
 "Not in strip: %@" = "Not in strip: %@";
 "Allow Accessibility to move windows" = "Allow Accessibility to move windows";
 "No attached window on this desktop can be arranged" = "No attached window on this desktop can be arranged";
@@ -179,3 +178,5 @@
 "In view" = "In view";
 "Parked at the edge" = "Parked at the edge";
 "Allow Accessibility to swipe the strip from anywhere" = "Allow Accessibility to swipe the strip from anywhere";
+"Move: %@ %@, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder" = "Move: %@ %@, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder";
+"%@ width · %@ centre · drag a window's edge for any width" = "%@ width · %@ centre · drag a window's edge for any width";

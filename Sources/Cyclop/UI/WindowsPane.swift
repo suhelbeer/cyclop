@@ -242,8 +242,12 @@ struct WindowsPane: View {
         VStack(alignment: .leading, spacing: 2) {
             if strip.isArranged {
                 Text(localized(
-                    "%@ %@ or swipe sideways with ⌃⌥ or on a title bar · %@ width · drag previews to reorder",
-                    strip.previousKey.label, strip.nextKey.label, strip.widthKey.label
+                    "Move: %@ %@, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder",
+                    strip.previousKey.label, strip.nextKey.label
+                ))
+                Text(localized(
+                    "%@ width · %@ centre · drag a window's edge for any width",
+                    strip.widthKey.label, strip.centerKey.label
                 ))
             }
             if !strip.leftOut.isEmpty {
