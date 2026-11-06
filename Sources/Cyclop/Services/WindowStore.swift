@@ -32,6 +32,10 @@ final class WindowStore: ObservableObject {
     /// Every capturable window, for the attach list.
     @Published private(set) var candidates: [AttachedWindow] = []
     @Published private(set) var thumbnails: [CGWindowID: CGImage] = [:]
+    /// Windows whose last capture returned nothing (minimized, app hidden,
+    /// permission gone), so the frame on screen is old. Off-screen is not the
+    /// same thing: windows on other desktops are captured and stay live.
+    @Published private(set) var stale: Set<CGWindowID> = []
     @Published private(set) var largePreview: (id: CGWindowID, image: CGImage)?
     @Published private(set) var hasScreenAccess = CGPreflightScreenCaptureAccess()
     @Published var hovered: CGWindowID? {
@@ -192,6 +196,9 @@ final class WindowStore: ObservableObject {
             for window in attached {
                 if let image = await capture(window.id, size: Self.thumbSize) {
                     thumbnails[window.id] = image
+                    stale.remove(window.id)
+                } else {
+                    stale.insert(window.id)
                 }
             }
         }
@@ -206,7 +213,13 @@ final class WindowStore: ObservableObject {
         capturingLarge = true
         Task { @MainActor in
             defer { capturingLarge = false }
-            guard let image = await capture(id, size: Self.largeSize), hovered == id else { return }
+            let image = await capture(id, size: Self.largeSize)
+            guard hovered == id else { return }
+            guard let image else {
+                stale.insert(id)
+                return
+            }
+            stale.remove(id)
             largePreview = (id, image)
         }
     }
@@ -255,6 +268,7 @@ final class WindowStore: ObservableObject {
             detachedWindowIDs.formIntersection(live)
         }
         thumbnails = thumbnails.filter { live.contains($0.key) }
+        stale.formIntersection(live)
     }
 
     private func capture(_ id: CGWindowID, size: CGFloat) async -> CGImage? {

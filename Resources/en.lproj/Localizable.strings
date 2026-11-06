@@ -154,6 +154,6 @@
 "Back to %@" = "Back to %@";
 "Needs Screen Recording. Previews stay on this Mac and are only\ntaken while this tab is open. Relaunch Cyclop after allowing it." = "Needs Screen Recording. Previews stay on this Mac and are only\ntaken while this tab is open. Relaunch Cyclop after allowing it.";
 "No windows attached" = "No windows attached";
-"Not visible, showing last frame" = "Not visible, showing last frame";
+"Can't capture this window now, showing last frame" = "Can't capture this window now, showing last frame";
 "Open the Claude app, or attach any window with the button on the right" = "Open the Claude app, or attach any window with the button on the right";
 "Preview your windows here" = "Preview your windows here";

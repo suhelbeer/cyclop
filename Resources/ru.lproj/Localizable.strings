@@ -153,6 +153,6 @@
 "Back to %@" = "Назад в %@";
 "Needs Screen Recording. Previews stay on this Mac and are only\ntaken while this tab is open. Relaunch Cyclop after allowing it." = "Нужна запись экрана. Превью остаются на этом Mac и снимаются,\nтолько пока открыта эта вкладка. После разрешения перезапусти Cyclop.";
 "No windows attached" = "Окна не прикреплены";
-"Not visible, showing last frame" = "Окно скрыто, показан последний кадр";
+"Can't capture this window now, showing last frame" = "Сейчас окно снять нельзя, показан последний кадр";
 "Open the Claude app, or attach any window with the button on the right" = "Открой приложение Claude или прикрепи любое окно кнопкой справа";
 "Preview your windows here" = "Здесь видны твои окна";

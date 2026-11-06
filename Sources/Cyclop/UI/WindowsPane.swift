@@ -46,6 +46,7 @@ struct WindowsPane: View {
                             Thumbnail(
                                 window: window,
                                 image: store.thumbnails[window.id],
+                                isStale: store.stale.contains(window.id),
                                 isFocused: window.id == shown?.id
                             )
                             .onHover { inside in
@@ -65,7 +66,8 @@ struct WindowsPane: View {
                     window: window,
                     image: store.largePreview?.id == window.id
                         ? store.largePreview?.image
-                        : store.thumbnails[window.id]
+                        : store.thumbnails[window.id],
+                    isStale: store.stale.contains(window.id)
                 )
                 .onHover { inside in store.hovered = inside ? window.id : nil }
                 .onTapGesture { store.jump(to: window) }
@@ -227,11 +229,12 @@ private struct Thumbnail: View {
     static let height: CGFloat = 70
     let window: AttachedWindow
     let image: CGImage?
+    let isStale: Bool
     let isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            PreviewFrame(image: image, dimmed: !window.isOnScreen)
+            PreviewFrame(image: image, dimmed: isStale)
                 .frame(width: 112, height: Self.height)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
@@ -251,9 +254,10 @@ private struct Thumbnail: View {
 private struct LargePreview: View {
     let window: AttachedWindow
     let image: CGImage?
+    let isStale: Bool
 
     var body: some View {
-        PreviewFrame(image: image, dimmed: !window.isOnScreen)
+        PreviewFrame(image: image, dimmed: isStale)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .bottomLeading) {
                 HStack(spacing: 6) {
@@ -262,8 +266,8 @@ private struct LargePreview: View {
                     if !window.title.isEmpty, window.title != window.appName {
                         Text(window.title).font(.system(size: 10.5))
                     }
-                    if !window.isOnScreen {
-                        Text("Not visible, showing last frame").font(.system(size: 10))
+                    if isStale {
+                        Text("Can't capture this window now, showing last frame").font(.system(size: 10))
                     }
                 }
                 .foregroundStyle(.white)
