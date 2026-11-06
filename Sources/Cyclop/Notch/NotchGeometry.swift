@@ -41,18 +41,36 @@ struct NotchGeometry {
         isPhysical ? notchSize.width + 2 * Self.rowNotchInset : Self.drawnCenterGap
     }
 
-    /// Width of one side of the row. Both sides take the fuller one's width,
-    /// so the pill stays centred on the camera.
-    func rowSideWidth(icons: Int) -> CGFloat {
-        CGFloat(max(icons, 1)) * Self.iconSlot + Self.rowEndInset
+    /// Width of one side of the row: its own icons, nothing more.
+    ///
+    /// The sides are not padded to match. With an odd number of tools one
+    /// side has an icon fewer, and the two ways of hiding that both showed:
+    /// spreading the shorter side's icons left its gaps visibly wider than the
+    /// other side's, and padding it left an empty cell of black at its end.
+    /// So the pill is as long as each side needs and sits off centre by half
+    /// an icon — the camera stays where it is, and that is what the eye
+    /// centres on.
+    static func rowSideWidth(icons: Int) -> CGFloat {
+        CGFloat(icons) * iconSlot + rowEndInset
     }
 
     /// The open-but-not-chosen pill: one row, the notch's own height.
     func pillSize(left: Int, right: Int) -> CGSize {
         CGSize(
-            width: rowCenterGap + 2 * rowSideWidth(icons: max(left, right)),
+            width: rowCenterGap + Self.rowSideWidth(icons: left) + Self.rowSideWidth(icons: right),
             height: notchSize.height
         )
+    }
+
+    /// How far right of the notch's centre the pill's centre sits: positive
+    /// when the right side is the longer one.
+    func pillOffset(left: Int, right: Int) -> CGFloat {
+        (Self.rowSideWidth(icons: right) - Self.rowSideWidth(icons: left)) / 2
+    }
+
+    /// Narrowest body that still covers the row with the notch in its middle.
+    func rowSpan(left: Int, right: Int) -> CGFloat {
+        rowCenterGap + 2 * Self.rowSideWidth(icons: max(left, right))
     }
 
     // MARK: - The body below the row
@@ -231,14 +249,15 @@ struct NotchGeometry {
     }
 
     /// Rect the content occupies inside the window, in screen coordinates.
-    func contentScreenRect(for size: CGSize) -> CGRect {
-        includingTopEdge(contentRect(for: size).offsetBy(dx: windowFrame.minX, dy: windowFrame.minY))
+    /// `offsetX` moves it off the notch's centre — see `pillOffset`.
+    func contentScreenRect(for size: CGSize, offsetX: CGFloat = 0) -> CGRect {
+        includingTopEdge(contentRect(for: size, offsetX: offsetX).offsetBy(dx: windowFrame.minX, dy: windowFrame.minY))
     }
 
     /// Rect the content occupies inside the window, in AppKit window coordinates.
-    func contentRect(for size: CGSize) -> CGRect {
+    func contentRect(for size: CGSize, offsetX: CGFloat = 0) -> CGRect {
         CGRect(
-            x: (windowSize.width - size.width) / 2,
+            x: (windowSize.width - size.width) / 2 + offsetX,
             y: windowSize.height - size.height,
             width: size.width,
             height: size.height
@@ -309,9 +328,9 @@ struct NotchGeometry {
     /// Area that keeps the panel open, taken for the body actually on screen:
     /// the pill, or the tool's body below it. A rect cut for the pill would
     /// call the pointer "away" the moment it went down into the tool.
-    func hoverRect(for body: CGSize) -> CGRect {
+    func hoverRect(for body: CGSize, offsetX: CGFloat = 0) -> CGRect {
         includingTopEdge(CGRect(
-            x: notchCenterX - body.width / 2 - 12,
+            x: notchCenterX + offsetX - body.width / 2 - 12,
             y: screen.frame.maxY - body.height - 12,
             width: body.width + 24,
             height: body.height + 12

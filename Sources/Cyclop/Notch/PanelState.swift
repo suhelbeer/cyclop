@@ -45,6 +45,11 @@ final class PanelState: ObservableObject {
         let row = vm.notchRow
         return geometry.pillSize(left: row.left.count, right: row.right.count)
     }
+    /// The pill sits off the notch's centre when one side has an icon more.
+    var pillOffset: CGFloat {
+        let row = vm.notchRow
+        return geometry.pillOffset(left: row.left.count, right: row.right.count)
+    }
 
     /// Body this screen takes when open — asked whether it is open yet or not.
     ///
@@ -59,13 +64,22 @@ final class PanelState: ObservableObject {
     /// for its own room (`NotchTool.bodySize`), so Now Playing stays a short
     /// strip while the window previews get space to breathe.
     var openBodySize: CGSize {
-        let pill = pillSize
-        guard showsBody else { return pill }
-        return geometry.bodySize(for: vm.activeTool.bodySize, rowWidth: pill.width)
+        guard showsBody else { return pillSize }
+        let row = vm.notchRow
+        let span = geometry.rowSpan(left: row.left.count, right: row.right.count)
+        return geometry.bodySize(for: vm.activeTool.bodySize, rowWidth: span)
     }
+
+    /// Where the open shape sits relative to the notch's centre: the pill may
+    /// be off centre, a body never is.
+    var openBodyOffset: CGFloat { showsBody ? 0 : pillOffset }
+
+    /// What counts as "on the panel" while it is open.
+    var openHoverRect: CGRect { geometry.hoverRect(for: openBodySize, offsetX: openBodyOffset) }
 
     /// Size of the visible body for the current state.
     var bodySize: CGSize { isActive ? openBodySize : geometry.collapsedSize }
+    var bodyOffset: CGFloat { isActive ? openBodyOffset : 0 }
 
     /// Hover and click both land here. A tab that types takes the keyboard
     /// either way: showing a field one cannot type into is worse than briefly

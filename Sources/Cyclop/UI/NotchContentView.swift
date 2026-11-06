@@ -57,6 +57,9 @@ struct NotchContentView: View {
 
             VStack(spacing: 0) {
                 IconRow(vm: vm, panel: panel)
+                    // The body is centred on the notch and the row may not
+                    // be: keep the row's gap over the camera either way.
+                    .offset(x: panel.showsBody ? panel.pillOffset : 0)
                     .opacity(isOpen ? 1 : 0)
                     // Folded, the icons are hidden under the notch strip; a
                     // pointer resting there must open the panel, not choose.
@@ -72,6 +75,7 @@ struct NotchContentView: View {
             .clipped()
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
+        .offset(x: panel.bodyOffset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.openAnimation, value: isOpen)
         .animation(Theme.openAnimation, value: panel.showsBody)
@@ -168,12 +172,11 @@ private struct IconRow: View {
     var body: some View {
         let row = panel.row
         let geometry = panel.geometry
-        let sideWidth = geometry.rowSideWidth(icons: max(row.left.count, row.right.count))
         HStack(spacing: 0) {
             // Listed nearest the notch first; drawn left to right.
-            side(Array(row.left.reversed()), width: sideWidth, outerEdge: .leading)
+            side(Array(row.left.reversed()), outerEdge: .leading)
             Color.clear.frame(width: geometry.rowCenterGap)
-            side(row.right, width: sideWidth, outerEdge: .trailing)
+            side(row.right, outerEdge: .trailing)
         }
         .frame(height: geometry.notchSize.height)
         .animation(Theme.contentAnimation, value: hovered)
@@ -188,20 +191,17 @@ private struct IconRow: View {
         }
     }
 
-    /// One side of the row. The fuller side's cells are `iconSlot` wide; a
-    /// side with one icon fewer spreads its cells over the same width, so the
-    /// gaps differ by a few points instead of leaving one empty cell at the end.
-    private func side(_ tools: [any NotchTool], width: CGFloat, outerEdge: Edge) -> some View {
-        let inner = width - NotchGeometry.rowEndInset
-        let cell = tools.isEmpty ? 0 : inner / CGFloat(tools.count)
-        return HStack(spacing: 0) {
+    /// One side of the row: equal cells, packed against the notch, with a
+    /// little black after the outermost one.
+    private func side(_ tools: [any NotchTool], outerEdge: Edge) -> some View {
+        HStack(spacing: 0) {
             if outerEdge == .leading { Color.clear.frame(width: NotchGeometry.rowEndInset) }
             ForEach(tools, id: \.id) { tool in
-                icon(tool, cellWidth: cell)
+                icon(tool, cellWidth: NotchGeometry.iconSlot)
             }
             if outerEdge == .trailing { Color.clear.frame(width: NotchGeometry.rowEndInset) }
         }
-        .frame(width: width, alignment: outerEdge == .leading ? .trailing : .leading)
+        .frame(width: NotchGeometry.rowSideWidth(icons: tools.count))
     }
 
     private func icon(_ tool: any NotchTool, cellWidth: CGFloat) -> some View {
