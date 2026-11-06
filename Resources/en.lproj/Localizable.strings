@@ -157,3 +157,7 @@
 "Can't capture this window now, showing last frame" = "Can't capture this window now, showing last frame";
 "Open the Claude app, or attach any window with the button on the right" = "Open the Claude app, or attach any window with the button on the right";
 "Preview your windows here" = "Preview your windows here";
+"Allow Accessibility to resize windows" = "Allow Accessibility to resize windows";
+"%d of %d windows resized; the rest could not be reached" = "%d of %d windows resized; the rest could not be reached";
+"Restore window sizes" = "Restore window sizes";
+"Fill screen with attached windows" = "Fill screen with attached windows";

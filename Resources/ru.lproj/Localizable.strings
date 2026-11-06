@@ -156,3 +156,7 @@
 "Can't capture this window now, showing last frame" = "Сейчас окно снять нельзя, показан последний кадр";
 "Open the Claude app, or attach any window with the button on the right" = "Открой приложение Claude или прикрепи любое окно кнопкой справа";
 "Preview your windows here" = "Здесь видны твои окна";
+"Allow Accessibility to resize windows" = "Разрешите Универсальный доступ, чтобы менять размер окон";
+"%d of %d windows resized; the rest could not be reached" = "Размер изменён у %d из %d окон; остальные недоступны";
+"Restore window sizes" = "Вернуть прежние размеры окон";
+"Fill screen with attached windows" = "Растянуть закреплённые окна на весь экран";

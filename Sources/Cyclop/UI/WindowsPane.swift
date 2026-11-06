@@ -22,7 +22,12 @@ struct WindowsPane: View {
                     previews
                 }
             }
-            if store.hasScreenAccess { editToggle }
+            if store.hasScreenAccess {
+                HStack(spacing: 6) {
+                    if !editing && !store.attached.isEmpty { fillToggle }
+                    editToggle
+                }
+            }
         }
         .onAppear { store.paneVisible = true }
         .onDisappear { store.paneVisible = false }
@@ -59,7 +64,7 @@ struct WindowsPane: View {
                         }
                     }
                 }
-                .padding(.trailing, 30)
+                .padding(.trailing, 58)
             }
             if let window = shown {
                 LargePreview(
@@ -71,6 +76,11 @@ struct WindowsPane: View {
                 )
                 .onHover { inside in store.hovered = inside ? window.id : nil }
                 .onTapGesture { store.jump(to: window) }
+            }
+            if let note = store.fillNote {
+                Text(note)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.tertiary)
             }
             if !WindowFocus.hasAccess {
                 HStack(spacing: 6) {
@@ -156,6 +166,21 @@ struct WindowsPane: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private var fillToggle: some View {
+        Button {
+            store.toggleFill()
+        } label: {
+            Image(systemName: store.isFilled
+                ? "arrow.down.right.and.arrow.up.left"
+                : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 12))
+                .foregroundStyle(store.isFilled ? Color.white : Theme.tertiary)
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .help(localized(store.isFilled ? "Restore window sizes" : "Fill screen with attached windows"))
     }
 
     private var editToggle: some View {

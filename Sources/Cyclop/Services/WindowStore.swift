@@ -153,6 +153,81 @@ final class WindowStore: ObservableObject {
         apply()
     }
 
+    // MARK: - Fill screen
+
+    /// Sizes before "Fill screen", by window, in Accessibility coordinates.
+    private var savedFrames: [CGWindowID: CGRect] = [:]
+    /// True between "Fill screen" and "Restore".
+    @Published private(set) var isFilled = false
+    /// What the last fill could not do, for the pane to say.
+    @Published private(set) var fillNote: String?
+    private var filling = false
+
+    /// One click: every attached window takes the visible area of the screen
+    /// it is on, stacked, so whichever the notch brings forward is full size.
+    /// Not macOS full screen: that would give each window its own desktop.
+    /// A second click puts every window back where it was.
+    func toggleFill() {
+        guard WindowFocus.hasAccess else {
+            WindowFocus.requestAccess()
+            fillNote = localized("Allow Accessibility to resize windows")
+            return
+        }
+        isFilled ? restoreFrames() : fillScreen()
+    }
+
+    private func fillScreen() {
+        guard !filling else { return }
+        filling = true
+        Task { @MainActor in
+            defer { filling = false }
+            let windows = attached
+            var saved: [CGWindowID: CGRect] = [:]
+            var missed = fill(windows, saving: &saved)
+            // Accessibility cannot see a window on another desktop, so those
+            // are missed. Go to them the way a click on their preview does
+            // (that also arms "Back"), give macOS a moment to switch, and try
+            // once more.
+            if let first = missed.first {
+                jump(to: first)
+                try? await Task.sleep(for: .milliseconds(900))
+                missed = fill(missed, saving: &saved)
+            }
+            savedFrames = saved
+            isFilled = !saved.isEmpty
+            fillNote = missed.isEmpty
+                ? nil
+                : localized("%d of %d windows resized; the rest could not be reached", saved.count, windows.count)
+        }
+    }
+
+    /// Resizes what Accessibility can reach; returns the windows it could not.
+    private func fill(_ windows: [AttachedWindow], saving saved: inout [CGWindowID: CGRect]) -> [AttachedWindow] {
+        let screens = NSScreen.screens.map { WindowLayout.Screen(frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        guard let primaryHeight = NSScreen.screens.first?.frame.height else { return windows }
+        var missed: [AttachedWindow] = []
+        for window in windows {
+            guard let current = WindowFocus.frame(of: window),
+                  let target = WindowLayout.fillFrame(for: current, in: screens, primaryHeight: primaryHeight),
+                  WindowFocus.setFrame(target, of: window)
+            else {
+                missed.append(window)
+                continue
+            }
+            saved[window.id] = current
+        }
+        return missed
+    }
+
+    private func restoreFrames() {
+        for window in attached {
+            if let frame = savedFrames[window.id] { WindowFocus.setFrame(frame, of: window) }
+        }
+        savedFrames = [:]
+        isFilled = false
+        fillNote = nil
+    }
+
     // MARK: - Jumping
 
     /// Brings the window forward and makes its app active. If a full-screen

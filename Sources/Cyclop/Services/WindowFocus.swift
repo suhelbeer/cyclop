@@ -52,6 +52,40 @@ enum WindowFocus {
         NSWorkspace.shared.openApplication(at: url, configuration: configuration)
     }
 
+    /// The window's frame as Accessibility sees it (origin top-left of the
+    /// primary display). Nil without access, or for a window Accessibility
+    /// cannot find — typically one on another desktop.
+    static func frame(of window: AttachedWindow) -> CGRect? {
+        guard hasAccess, let element = axWindow(for: window) else { return nil }
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &value) == .success,
+              let positionValue = value, AXValueGetValue(positionValue as! AXValue, .cgPoint, &position)
+        else { return nil }
+        guard AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &value) == .success,
+              let sizeValue = value, AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        else { return nil }
+        return CGRect(origin: position, size: size)
+    }
+
+    /// Moves and resizes a window. Size first and again after the move: a
+    /// window that cannot be that big at its old position is clamped, and
+    /// setting the size once more at the new origin lets it reach the target.
+    @discardableResult
+    static func setFrame(_ rect: CGRect, of window: AttachedWindow) -> Bool {
+        guard hasAccess, let element = axWindow(for: window) else { return false }
+        var origin = rect.origin
+        var size = rect.size
+        guard let position = AXValueCreate(.cgPoint, &origin), let extent = AXValueCreate(.cgSize, &size)
+        else { return false }
+        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, extent)
+        let moved = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, position)
+        AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, extent)
+        return moved == .success
+    }
+
     private static func axWindow(for window: AttachedWindow) -> AXUIElement? {
         let app = AXUIElementCreateApplication(window.pid)
         var value: CFTypeRef?
