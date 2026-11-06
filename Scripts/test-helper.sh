@@ -20,6 +20,9 @@ TIMEOUT="${TIMEOUT:-8}"
 fail() { echo "!!! $1" >&2; exit 1; }
 
 [ -f "$DYLIB" ] || fail "нет хелпера: $DYLIB (сначала ./Scripts/bundle.sh)"
+# Hardened /usr/bin/perl refuses a relative dlopen path and the helper then
+# looks silent, so the path is made absolute first.
+DYLIB="$(cd "$(dirname "$DYLIB")" && pwd)/$(basename "$DYLIB")"
 [ -x /usr/bin/perl ] || fail "нет /usr/bin/perl — хелперу негде запускаться"
 
 WORK="$(mktemp -d)"
