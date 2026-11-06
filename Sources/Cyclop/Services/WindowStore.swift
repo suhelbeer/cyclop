@@ -235,6 +235,23 @@ final class WindowStore: ObservableObject {
 
     // MARK: - Jumping
 
+    /// Arrange ⇄ Release for the strip.
+    func toggleStrip() {
+        let strip = WindowStrip.shared
+        strip.isArranged ? strip.release() : strip.arrange(attached, joining: attachedApps)
+    }
+
+    /// A click on a preview: inside an arranged strip it scrolls there,
+    /// otherwise it jumps to the window as before.
+    func open(_ window: AttachedWindow) {
+        let strip = WindowStrip.shared
+        if strip.index(of: window.id) != nil {
+            strip.focus(on: window.id)
+        } else {
+            jump(to: window)
+        }
+    }
+
     /// Brings the window forward and makes its app active. If a full-screen
     /// app was in front, macOS slides to the window's desktop: no app can put
     /// another app's window over a full-screen space.
@@ -341,7 +358,18 @@ final class WindowStore: ObservableObject {
     }
 
     private func apply() {
-        let now = candidates.filter(isAttached)
+        var now = candidates.filter(isAttached)
+        // While the strip is arranged the tab follows its order: sorting by
+        // position would shuffle the windows parked at the screen edges.
+        let strip = WindowStrip.shared
+        if strip.isArranged {
+            let order = Dictionary(uniqueKeysWithValues: now.enumerated().map { ($1.id, $0) })
+            now.sort {
+                let a = strip.index(of: $0.id) ?? Int.max, b = strip.index(of: $1.id) ?? Int.max
+                return a != b ? a < b : order[$0.id, default: 0] < order[$1.id, default: 0]
+            }
+            if !candidates.isEmpty { strip.windowsChanged(now) }
+        }
         if now != attached { attached = now }
         let live = Set(candidates.map(\.id))
         // Forget picks for windows that no longer exist, so ids do not pile

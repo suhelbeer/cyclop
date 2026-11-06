@@ -187,6 +187,11 @@ final class NotchViewModel: ObservableObject {
 
     /// A file the user dropped by hand: switching to the receiving tool is the
     /// point. Refused when no tool takes files.
+    /// A scroll over the notch, offered to the visible tools in rail order.
+    func notchScrolled(_ event: NSEvent) -> Bool {
+        visibleTools.contains { $0.notchScrolled(event) }
+    }
+
     func accept(urls: [URL]) -> Bool {
         guard let target = dropTarget, target.acceptDrop(urls) else { return false }
         tab = target.id

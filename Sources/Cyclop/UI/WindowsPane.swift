@@ -5,9 +5,13 @@ import SwiftUI
 /// pointed at, so moving down onto it to click does not swap it out.
 struct WindowsPane: View {
     @ObservedObject var store: WindowStore
+    @ObservedObject private var strip = WindowStrip.shared
     @State private var editing = false
     /// The window in the large preview.
     @State private var focused: CGWindowID?
+    /// The preview being dragged to reorder the strip, and how far.
+    @State private var dragging: CGWindowID?
+    @State private var dragX: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -24,7 +28,11 @@ struct WindowsPane: View {
             }
             if store.hasScreenAccess {
                 HStack(spacing: 6) {
-                    if !editing && !store.attached.isEmpty { fillToggle }
+                    if !editing && !store.attached.isEmpty {
+                        // One layout at a time: each restores its own saved frames.
+                        if !store.isFilled { stripToggle }
+                        if !strip.isArranged { fillToggle }
+                    }
                     editToggle
                 }
             }
@@ -39,6 +47,15 @@ struct WindowsPane: View {
         store.attached.first { $0.id == focused } ?? store.attached.first
     }
 
+    /// The tab's order, or the strip's while it is arranged.
+    private var ordered: [AttachedWindow] {
+        guard strip.isArranged else { return store.attached }
+        return store.attached.enumerated().sorted { a, b in
+            let ia = strip.index(of: a.element.id) ?? Int.max, ib = strip.index(of: b.element.id) ?? Int.max
+            return ia != ib ? ia < ib : a.offset < b.offset
+        }.map(\.element)
+    }
+
     private var previews: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -47,20 +64,25 @@ struct WindowsPane: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(store.attached) { window in
+                        ForEach(ordered) { window in
                             Thumbnail(
                                 window: window,
                                 image: store.thumbnails[window.id],
                                 isStale: store.stale.contains(window.id),
-                                isFocused: window.id == shown?.id
+                                isFocused: window.id == shown?.id,
+                                strip: stripState(of: window)
                             )
+                            .offset(x: window.id == dragging ? dragX : shift(for: window))
+                            .zIndex(window.id == dragging ? 1 : 0)
+                            .opacity(window.id == dragging ? 0.85 : 1)
+                            .gesture(reorder(window), including: strip.index(of: window.id) != nil ? .all : .subviews)
                             .onHover { inside in
                                 if inside {
                                     focused = window.id
                                     store.hovered = window.id
                                 }
                             }
-                            .onTapGesture { store.jump(to: window) }
+                            .onTapGesture { store.open(window) }
                         }
                     }
                 }
@@ -75,7 +97,10 @@ struct WindowsPane: View {
                     isStale: store.stale.contains(window.id)
                 )
                 .onHover { inside in store.hovered = inside ? window.id : nil }
-                .onTapGesture { store.jump(to: window) }
+                .onTapGesture { store.open(window) }
+            }
+            if strip.isArranged || strip.note != nil || !strip.leftOut.isEmpty {
+                stripStatus
             }
             if let note = store.fillNote {
                 Text(note)
@@ -168,6 +193,92 @@ struct WindowsPane: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Strip
+
+    /// One preview plus the gap after it.
+    private static let slot = Thumbnail.width + 8
+
+    /// Dragging a preview sideways moves its window along the strip. The
+    /// others step aside as it passes, so the drop place is visible.
+    private func reorder(_ window: AttachedWindow) -> some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { value in
+                if dragging == nil { dragging = window.id }
+                guard dragging == window.id else { return }
+                withAnimation(.easeOut(duration: 0.12)) { dragX = value.translation.width }
+            }
+            .onEnded { value in
+                defer {
+                    dragging = nil
+                    dragX = 0
+                }
+                guard let from = strip.index(of: window.id) else { return }
+                let to = StripLayout.dropIndex(
+                    from: from, translation: value.translation.width, slot: Self.slot, count: strip.columns.count
+                )
+                strip.move(window.id, to: to)
+            }
+    }
+
+    /// How far a preview steps aside for the one being dragged.
+    private func shift(for window: AttachedWindow) -> CGFloat {
+        guard let dragged = dragging, dragged != window.id,
+              let from = strip.index(of: dragged), let index = strip.index(of: window.id)
+        else { return 0 }
+        let to = StripLayout.dropIndex(from: from, translation: dragX, slot: Self.slot, count: strip.columns.count)
+        if from < to, index > from, index <= to { return -Self.slot }
+        if to < from, index >= to, index < from { return Self.slot }
+        return 0
+    }
+
+    private func stripState(of window: AttachedWindow) -> Thumbnail.StripState {
+        guard strip.isArranged else { return .none }
+        if strip.index(of: window.id) == nil { return .out }
+        return strip.inView.contains(window.id) ? .shown : .parked
+    }
+
+    /// How to move along the strip, and what was left out of it and why.
+    private var stripStatus: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if strip.isArranged {
+                Text(localized(
+                    "Move: %@ %@, scroll on the menu bar, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder",
+                    strip.previousKey.label, strip.nextKey.label
+                ))
+                Text(localized(
+                    "%@ %@ narrower/wider · %@ preset widths · %@ centre · or drag a window's edge",
+                    strip.narrowerKey.label, strip.widerKey.label, strip.widthKey.label, strip.centerKey.label
+                ))
+            }
+            if !strip.leftOut.isEmpty {
+                Text(localized("Not in strip: %@", strip.leftOut
+                    .map { "\($0.window.label) (\($0.reason.text))" }
+                    .joined(separator: ", ")))
+            }
+            if let note = strip.note { Text(note) }
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(Theme.tertiary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+
+    private var stripToggle: some View {
+        Button {
+            store.toggleStrip()
+        } label: {
+            Image(systemName: strip.isArranged ? "rectangle.split.3x1.fill" : "rectangle.split.3x1")
+                .font(.system(size: 12))
+                .foregroundStyle(strip.isArranged ? Color.white : Theme.tertiary)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(strip.isArranged
+            ? localized("Release: put the windows back where they were")
+            : localized("Arrange attached windows side by side in a strip"))
+    }
+
     private var fillToggle: some View {
         Button {
             store.toggleFill()
@@ -251,28 +362,49 @@ struct WindowsPane: View {
 }
 
 private struct Thumbnail: View {
+    static let width: CGFloat = 112
     static let height: CGFloat = 70
     let window: AttachedWindow
     let image: CGImage?
     let isStale: Bool
     let isFocused: Bool
+    var strip: StripState = .none
+
+    /// Where the window sits in an arranged strip.
+    enum StripState { case none, shown, parked, out }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             PreviewFrame(image: image, dimmed: isStale)
-                .frame(width: 112, height: Self.height)
+                .frame(width: Self.width, height: Self.height)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(isFocused ? Color.white.opacity(0.7) : Theme.hairline, lineWidth: 1)
                 )
+                .overlay(alignment: .bottom) { stripMark }
             Text(window.label)
                 .font(.system(size: 9.5))
                 .foregroundStyle(isFocused ? .white : Theme.secondary)
                 .lineLimit(1)
-                .frame(width: 112, alignment: .leading)
+                .frame(width: Self.width, alignment: .leading)
         }
         .contentShape(Rectangle())
         .help(localized("%@ · click to switch", window.label))
+    }
+
+    /// A bar along the bottom of the preview: bright for a window in view on
+    /// the strip, faint for one parked at the screen edge.
+    @ViewBuilder private var stripMark: some View {
+        switch strip {
+        case .shown, .parked:
+            Capsule()
+                .fill(strip == .shown ? Color.white.opacity(0.9) : Color.white.opacity(0.25))
+                .frame(width: 28, height: 3)
+                .padding(.bottom, 4)
+                .accessibilityLabel(localized(strip == .shown ? "In view" : "Parked at the edge"))
+        case .none, .out:
+            EmptyView()
+        }
     }
 }
 

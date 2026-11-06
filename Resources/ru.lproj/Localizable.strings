@@ -160,3 +160,22 @@
 "%d of %d windows resized; the rest could not be reached" = "Размер изменён у %d из %d окон; остальные недоступны";
 "Restore window sizes" = "Вернуть прежние размеры окон";
 "Fill screen with attached windows" = "Растянуть закреплённые окна на весь экран";
+
+/* Окна: лента */
+"Arrange attached windows side by side in a strip" = "Выстроить закреплённые окна в ленту";
+"Release: put the windows back where they were" = "Отпустить: вернуть окна на прежние места";
+"Not in strip: %@" = "Не в ленте: %@";
+"Allow Accessibility to move windows" = "Разрешите Универсальный доступ, чтобы двигать окна";
+"No attached window on this desktop can be arranged" = "На этом рабочем столе нет закреплённых окон, которые можно выстроить";
+"Shortcut taken by another app: %@" = "Сочетание занято другим приложением: %@";
+"minimized" = "свёрнуто";
+"full screen" = "во весь экран";
+"app hidden" = "приложение скрыто";
+"on another desktop" = "на другом рабочем столе";
+"not responding" = "не отвечает";
+"opened after Arrange" = "открыто позже";
+"In view" = "На экране";
+"Parked at the edge" = "У края экрана";
+"Allow Accessibility to swipe the strip from anywhere" = "Разрешите Универсальный доступ, чтобы листать ленту откуда угодно";
+"%@ %@ narrower/wider · %@ preset widths · %@ centre · or drag a window's edge" = "%@ %@ уже/шире · %@ готовые ширины · %@ по центру · или потяните край окна";
+"Move: %@ %@, scroll on the menu bar, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder" = "Двигать: %@ %@, прокрутка по строке меню или смахивание вбок с ⌃⌥ или по заголовку · перетащите превью, чтобы поменять порядок";
