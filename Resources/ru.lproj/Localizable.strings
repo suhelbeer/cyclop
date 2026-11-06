@@ -141,20 +141,18 @@
 "Hold Esc or − for %d s" = "Держи Esc или − %d с";
 "Unlocks by itself in %d s" = "Само снимется через %d с";
 
-/* Claude sessions */
-"Claude" = "Claude";
-"Claude Code hooks" = "Хуки Claude Code";
-"Cyclop adds a small hook to ~/.claude/settings.json that writes each\nsession's status to a local file. A backup of the file is kept." = "Cyclop добавит небольшой хук в ~/.claude/settings.json, который пишет\nстатус каждой сессии в локальный файл. Копия файла сохраняется.";
-"Needs you" = "Ждёт тебя";
-"No Claude Code sessions" = "Сессий Claude Code нет";
-"Quiet" = "Затихла";
-"Working" = "Работает";
-"Reinstall" = "Переустановить";
-"Remove hooks" = "Убрать хуки";
-"Setup" = "Настройка";
-"Running sessions show up after their next prompt" = "Запущенные сессии появятся после следующего запроса";
-"See your Claude Code sessions here" = "Здесь видны сессии Claude Code";
-"Sessions started before setup appear after their next prompt.\nClicking a session in Terminal or iTerm2 jumps to its tab; macOS asks\nonce for permission to control that app." = "Сессии, начатые до настройки, появятся после следующего запроса.\nНажатие на сессию в Terminal или iTerm2 открывает её вкладку; macOS\nодин раз спросит разрешение на управление этим приложением.";
-"Set up" = "Настроить";
-"~/.claude/settings.json is not valid JSON, so Cyclop left it alone." = "~/.claude/settings.json — не валидный JSON, Cyclop его не тронул.";
-"New" = "Новая";
+/* Windows */
+"Windows" = "Окна";
+"%@ · click to switch" = "%@ · нажми, чтобы перейти";
+"All %@ windows" = "Все окна %@";
+"Allow" = "Разрешить";
+"Allow Accessibility so a click brings up that exact window" = "Разреши Универсальный доступ, чтобы по нажатию открывалось именно это окно";
+"Allow Screen Recording" = "Разрешить запись экрана";
+"Attach windows" = "Прикрепить окна";
+"Back" = "Назад";
+"Back to %@" = "Назад в %@";
+"Needs Screen Recording. Previews stay on this Mac and are only\ntaken while this tab is open. Relaunch Cyclop after allowing it." = "Нужна запись экрана. Превью остаются на этом Mac и снимаются,\nтолько пока открыта эта вкладка. После разрешения перезапусти Cyclop.";
+"No windows attached" = "Окна не прикреплены";
+"Not visible, showing last frame" = "Окно скрыто, показан последний кадр";
+"Open the Claude app, or attach any window with the button on the right" = "Открой приложение Claude или прикрепи любое окно кнопкой справа";
+"Preview your windows here" = "Здесь видны твои окна";

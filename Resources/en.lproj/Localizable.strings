@@ -142,20 +142,18 @@
 "Hold Esc or − for %d s" = "Hold Esc or − for %d s";
 "Unlocks by itself in %d s" = "Unlocks by itself in %d s";
 
-/* Claude sessions */
-"Claude" = "Claude";
-"Claude Code hooks" = "Claude Code hooks";
-"Cyclop adds a small hook to ~/.claude/settings.json that writes each\nsession's status to a local file. A backup of the file is kept." = "Cyclop adds a small hook to ~/.claude/settings.json that writes each\nsession's status to a local file. A backup of the file is kept.";
-"Needs you" = "Needs you";
-"No Claude Code sessions" = "No Claude Code sessions";
-"Quiet" = "Quiet";
-"Working" = "Working";
-"Reinstall" = "Reinstall";
-"Remove hooks" = "Remove hooks";
-"Setup" = "Setup";
-"Running sessions show up after their next prompt" = "Running sessions show up after their next prompt";
-"See your Claude Code sessions here" = "See your Claude Code sessions here";
-"Sessions started before setup appear after their next prompt.\nClicking a session in Terminal or iTerm2 jumps to its tab; macOS asks\nonce for permission to control that app." = "Sessions started before setup appear after their next prompt.\nClicking a session in Terminal or iTerm2 jumps to its tab; macOS asks\nonce for permission to control that app.";
-"Set up" = "Set up";
-"~/.claude/settings.json is not valid JSON, so Cyclop left it alone." = "~/.claude/settings.json is not valid JSON, so Cyclop left it alone.";
-"New" = "New";
+/* Windows */
+"Windows" = "Windows";
+"%@ · click to switch" = "%@ · click to switch";
+"All %@ windows" = "All %@ windows";
+"Allow" = "Allow";
+"Allow Accessibility so a click brings up that exact window" = "Allow Accessibility so a click brings up that exact window";
+"Allow Screen Recording" = "Allow Screen Recording";
+"Attach windows" = "Attach windows";
+"Back" = "Back";
+"Back to %@" = "Back to %@";
+"Needs Screen Recording. Previews stay on this Mac and are only\ntaken while this tab is open. Relaunch Cyclop after allowing it." = "Needs Screen Recording. Previews stay on this Mac and are only\ntaken while this tab is open. Relaunch Cyclop after allowing it.";
+"No windows attached" = "No windows attached";
+"Not visible, showing last frame" = "Not visible, showing last frame";
+"Open the Claude app, or attach any window with the button on the right" = "Open the Claude app, or attach any window with the button on the right";
+"Preview your windows here" = "Preview your windows here";
