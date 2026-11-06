@@ -14,62 +14,89 @@ struct NotchGeometry {
     /// collapsed, the way it used to. Off by default — see `collapsedDepth`.
     let drawsFullSize: Bool
 
-    /// Metrics of the tab rail that do not depend on the notch. `railIconHeight`
-    /// is not among them — see below.
-    static let railSpacing: CGFloat = 4
-    /// Gap between the rail and the bottom edge of the body.
+    // MARK: - The icon row
+    //
+    // Opening the notch first grows it sideways into a pill one notch tall,
+    // with the tool icons immediately left and right of the camera. Resting on
+    // an icon drops the body down for that tool. The pointer arrives at the
+    // notch and never has to leave that row to choose: the old layout put the
+    // icons in two rails down the sides of a 620 pt body, so choosing meant
+    // going up to open and then down and out to pick.
+
+    /// Width each icon cell gets on the fuller side of the row. The cell is
+    /// the hover target, the full height of the row.
+    static let iconSlot: CGFloat = 28
+    /// Black between the outermost icon and the end of the pill.
+    static let rowEndInset: CGFloat = 8
+    /// Black between the camera housing and the nearest icon.
+    static let rowNotchInset: CGFloat = 6
+    /// Gap left in the middle of the row on a display with no notch. There is
+    /// no camera to step around, so the sides close up — but not all the way:
+    /// the pointer that opened the panel is resting in the middle, and with
+    /// an icon under it the dwell would choose that tool on its own.
+    static let drawnCenterGap: CGFloat = 48
+
+    /// Width of the middle of the row the icons step around.
+    var rowCenterGap: CGFloat {
+        isPhysical ? notchSize.width + 2 * Self.rowNotchInset : Self.drawnCenterGap
+    }
+
+    /// Width of one side of the row. Both sides take the fuller one's width,
+    /// so the pill stays centred on the camera.
+    func rowSideWidth(icons: Int) -> CGFloat {
+        CGFloat(max(icons, 1)) * Self.iconSlot + Self.rowEndInset
+    }
+
+    /// The open-but-not-chosen pill: one row, the notch's own height.
+    func pillSize(left: Int, right: Int) -> CGSize {
+        CGSize(
+            width: rowCenterGap + 2 * rowSideWidth(icons: max(left, right)),
+            height: notchSize.height
+        )
+    }
+
+    // MARK: - The body below the row
+
+    /// The tool's name and counter, between the row and the pane.
+    static let captionHeight: CGFloat = 18
+    /// Gap between the pane and the bottom edge of the body.
     static let bodyBottomPadding: CGFloat = 14
+    /// Gap between the pane and the sides of the body.
+    static let bodyHorizontalPadding: CGFloat = 14
 
-    /// Size of the fully expanded panel body. Held constant across every Mac:
-    /// letting it follow the header made two people on the very same model
-    /// see two different heights, just from different display-scaling
-    /// settings — 38 pt against 32 for the same physical notch, an 11 pt
-    /// spread from one slider (#27). What differs between Macs lives in
-    /// `railIconHeight` instead, which is the one thing in the body actually
-    /// free to give.
-    let expandedSize = CGSize(width: 620, height: 208)
-
-    /// Body for the teleprompter, the one tab that asks for more.
-    ///
-    /// Same width, so the panel does not change shape sideways — only the
-    /// bottom edge moves, and it moves away from the notch rather than around
-    /// it. The height is the smallest that fits a paragraph at a size readable
-    /// without focusing: below this the tab shows the current line and the next
-    /// one, which is a countdown, not a script.
-    static let tallBodyHeight: CGFloat = 400
-    var tallExpandedSize: CGSize {
-        CGSize(width: expandedSize.width, height: Self.tallBodyHeight)
-    }
-    /// Tallest body any tab can ask for. The window is cut to this once and
-    /// never resized: it is transparent outside the visible panel, and what is
-    /// clickable is decided separately by the active rect.
-    var maxBodyHeight: CGFloat { max(expandedSize.height, Self.tallBodyHeight) }
-
-    /// What the body has left for content on an ordinary tab, once the header
-    /// and the padding beneath are taken out.
-    ///
-    /// The rails are held to this even on the tab that is taller, so the icons
-    /// stay at the same height on every tab. Centred in the body instead, they
-    /// slid down by half the difference — 96 pt — the moment the teleprompter
-    /// opened, which put the icon just clicked well below the pointer that had
-    /// clicked it.
-    var standardContentHeight: CGFloat {
-        expandedSize.height - notchSize.height - Self.bodyBottomPadding
+    /// Pane area each body size asks for. Held constant across Macs; only the
+    /// row on top follows the notch. The body is never narrower than the row:
+    /// a body tucked under a wider row leaves two thin ledges either side of
+    /// it, and those read as a rendering fault rather than a shape.
+    static func paneSize(for size: ToolBodySize) -> CGSize {
+        switch size {
+        case .compact: CGSize(width: 400, height: 126)
+        case .standard: CGSize(width: 512, height: 162)
+        case .tall: CGSize(width: 512, height: 354)
+        case .wide: CGSize(width: 692, height: 354)
+        }
     }
 
-    /// Height each rail icon gets. A ceiling, not a constant: six icons at
-    /// the full 24 pt plus the five 4 pt gaps between them is 164 pt, and
-    /// the body only has `expandedSize.height − notchSize.height −
-    /// bodyBottomPadding` left to give the rail once the header — the notch
-    /// itself — and the padding beneath are taken out of the fixed 208.
-    /// Rounded down rather than to the nearest point: a rail that asks for
-    /// more than it is given should visibly yield, not overflow by a
-    /// fraction that clips it.
-    func railIconHeight(slots: Int) -> CGFloat {
-        let icons = CGFloat(max(slots, 1))
-        let available = expandedSize.height - notchSize.height - Self.bodyBottomPadding
-        let ceiling = (available - (icons - 1) * Self.railSpacing) / icons
-        return min(24, ceiling).rounded(.down)
+    /// Full body for a tool: row, caption, pane and padding.
+    func bodySize(for size: ToolBodySize, rowWidth: CGFloat) -> CGSize {
+        let pane = Self.paneSize(for: size)
+        return CGSize(
+            width: max(rowWidth, pane.width + 2 * Self.bodyHorizontalPadding),
+            height: notchSize.height + Self.captionHeight + pane.height + Self.bodyBottomPadding
+        )
+    }
+
+    /// Largest row the window has to make room for. Generous on purpose: the
+    /// window is transparent and click-through outside the panel, so cutting
+    /// it once for more icons than anyone runs costs nothing.
+    private static let maxIconsPerSide = 8
+
+    /// Widest and tallest body any tab can ask for. The window is cut to this
+    /// once and never resized: what is clickable is decided by the active rect.
+    var maxBodySize: CGSize {
+        let row = pillSize(left: Self.maxIconsPerSide, right: Self.maxIconsPerSide).width
+        let all = ToolBodySize.allCases.map { bodySize(for: $0, rowWidth: row) }
+        return CGSize(width: all.map(\.width).max() ?? row, height: all.map(\.height).max() ?? notchSize.height)
     }
 
     /// Slack around the panel so the concave shoulders and shadow are not clipped.
@@ -179,8 +206,8 @@ struct NotchGeometry {
 
     var windowSize: CGSize {
         CGSize(
-            width: expandedSize.width + windowPadding.left + windowPadding.right,
-            height: maxBodyHeight + windowPadding.bottom
+            width: maxBodySize.width + windowPadding.left + windowPadding.right,
+            height: maxBodySize.height + windowPadding.bottom
         )
     }
 
@@ -279,12 +306,9 @@ struct NotchGeometry {
         ))
     }
 
-    /// Area that keeps the panel open while expanded, in global screen coordinates.
-    var expandedHoverRect: CGRect { hoverRect(for: expandedSize) }
-
-    /// Taken for the body actually on screen, not for the standard one: on the
-    /// teleprompter the panel reaches 400 pt down, and a rect cut for 208 would
-    /// call the pointer "away" halfway through the tab it is resting on.
+    /// Area that keeps the panel open, taken for the body actually on screen:
+    /// the pill, or the tool's body below it. A rect cut for the pill would
+    /// call the pointer "away" the moment it went down into the tool.
     func hoverRect(for body: CGSize) -> CGRect {
         includingTopEdge(CGRect(
             x: notchCenterX - body.width / 2 - 12,

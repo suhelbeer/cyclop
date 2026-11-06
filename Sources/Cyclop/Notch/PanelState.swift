@@ -18,7 +18,7 @@ final class PanelState: ObservableObject {
     let geometry: NotchGeometry
     private let vm: NotchViewModel
 
-    /// Raised when any of the three above moves, so whoever owns every screen
+    /// Raised when any of the flags here moves, so whoever owns every screen
     /// can recompute what the shared model needs to know about the panels.
     var onChange: (() -> Void)?
 
@@ -27,8 +27,24 @@ final class PanelState: ObservableObject {
         self.vm = vm
     }
 
+    /// Whether a tool's body is down below the icon row. Open without it, the
+    /// panel is the pill: the notch grown sideways into a row of icons. Resting
+    /// on an icon (or clicking one) drops the body; folding the panel resets it.
+    @Published var isExpanded = false { didSet { notify(isExpanded != oldValue) } }
+
     /// Whether this screen is showing anything beyond the bare notch.
     var isActive: Bool { isOpen || isDropTargeted }
+
+    /// Whether the body is down: chosen, or a file is being dragged in, which
+    /// needs the shelf on screen to land on.
+    var showsBody: Bool { isExpanded || isDropTargeted }
+
+    /// The icons either side of the notch and the pill they make.
+    var row: (left: [any NotchTool], right: [any NotchTool]) { vm.notchRow }
+    var pillSize: CGSize {
+        let row = vm.notchRow
+        return geometry.pillSize(left: row.left.count, right: row.right.count)
+    }
 
     /// Body this screen takes when open — asked whether it is open yet or not.
     ///
@@ -39,14 +55,13 @@ final class PanelState: ObservableObject {
     /// that step the collapsed size and leave the whole body drawn but deaf to
     /// the pointer.
     ///
-    /// One tab is taller than the rest. Type large enough to read at a glance
-    /// leaves room for two lines in the standard body, and two lines is not a
-    /// teleprompter — it is a countdown. The extra height buys the paragraph
-    /// the reader needs to see coming.
-    /// Asked of the tab rather than naming the teleprompter, so that a tab
-    /// added for the same reason needs nothing here.
+    /// The pill until a tool is chosen, then that tool's body: each tool asks
+    /// for its own room (`NotchTool.bodySize`), so Now Playing stays a short
+    /// strip while the window previews get space to breathe.
     var openBodySize: CGSize {
-        vm.activeTool.wantsTallBody ? geometry.tallExpandedSize : geometry.expandedSize
+        let pill = pillSize
+        guard showsBody else { return pill }
+        return geometry.bodySize(for: vm.activeTool.bodySize, rowWidth: pill.width)
     }
 
     /// Size of the visible body for the current state.
@@ -61,6 +76,7 @@ final class PanelState: ObservableObject {
     /// changes what every screen shows, but only this one starts listening.
     func select(_ id: ToolID) {
         vm.tab = id
+        isExpanded = true
         if vm.activeTool.needsKeyboard { wantsKeyboard = true }
     }
 

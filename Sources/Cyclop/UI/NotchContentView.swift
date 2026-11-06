@@ -39,21 +39,31 @@ struct NotchContentView: View {
         !panel.geometry.isPhysical || size != panel.geometry.notchSize
     }
 
+    /// The pill is one notch tall, so it gets corners to match: the open
+    /// panel's 22 pt bottom radius would not fit in it.
+    private var bottomRadius: CGFloat {
+        guard isOpen else { return Theme.collapsedBottomRadius }
+        return panel.showsBody ? Theme.openBottomRadius : Theme.pillBottomRadius
+    }
+
     var body: some View {
         // The shape is wider than the body by `topRadius` on each side: that
         // slack is where the concave shoulders live, so it must not be clipped.
         ZStack(alignment: .top) {
-            NotchShape(
-                topRadius: topRadius,
-                bottomRadius: isOpen ? Theme.openBottomRadius : Theme.collapsedBottomRadius
-            )
-            .fill(paintsShape ? Color.black : Color.clear)
-            .frame(width: size.width + 2 * topRadius, height: size.height)
-            .shadow(color: .black.opacity(isOpen ? 0.5 : 0), radius: 18, y: 8)
+            NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)
+                .fill(paintsShape ? Color.black : Color.clear)
+                .frame(width: size.width + 2 * topRadius, height: size.height)
+                .shadow(color: .black.opacity(isOpen ? (panel.showsBody ? 0.5 : 0.3) : 0), radius: 18, y: 8)
 
             VStack(spacing: 0) {
-                header
-                if isOpen {
+                IconRow(vm: vm, panel: panel)
+                    .opacity(isOpen ? 1 : 0)
+                    // Folded, the icons are hidden under the notch strip; a
+                    // pointer resting there must open the panel, not choose.
+                    .allowsHitTesting(isOpen)
+                if isOpen && panel.showsBody {
+                    caption
+                        .transition(.opacity)
                     content
                         .transition(.opacity)
                 }
@@ -64,65 +74,46 @@ struct NotchContentView: View {
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.openAnimation, value: isOpen)
-        .animation(Theme.paneAnimation, value: vm.tab)
+        .animation(Theme.openAnimation, value: panel.showsBody)
+        .animation(Theme.openAnimation, value: vm.tab)
     }
 
-    // MARK: - Header
+    // MARK: - Caption
     //
-    // This strip sits directly on top of the menu bar. Menu bar utilities such
-    // as Ice watch for clicks there with a global event monitor — a passive
-    // observer that sees the click no matter which window consumes it — so
-    // clicking here toggles them as a side effect. Nothing interactive goes in
-    // this row; the tab switcher lives in the rail below.
+    // The tool's name and its counter, in a slim line between the row and the
+    // pane. They used to stand in the notch row itself; the row is the icons'
+    // now, and the lit icon already says which tool this is, so the name is
+    // kept small enough to read as a label rather than a title bar.
 
-    private var header: some View {
+    private var caption: some View {
         HStack(spacing: 0) {
-            if isOpen {
-                Text(vm.activeTool.title.uppercased())
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(0.8)
-                    .foregroundStyle(Theme.tertiary)
-                    .padding(.leading, 16)
-                    .id(vm.tab)
-                    .transition(.opacity)
-            }
+            Text(vm.activeTool.title.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(Theme.tertiary)
+                .id(vm.tab)
+                .transition(.opacity)
             Spacer(minLength: 0)
-            Color.clear.frame(width: panel.geometry.notchSize.width, height: 1)
-            Spacer(minLength: 0)
-            if isOpen {
-                trailing
-                    .padding(.trailing, 16)
-                    .transition(.opacity)
-            }
+            vm.activeTool.headerAccessory()
         }
-        .frame(height: panel.geometry.notchSize.height)
-    }
-
-    private var trailing: some View {
-        vm.activeTool.headerAccessory()
+        .padding(.horizontal, NotchGeometry.bodyHorizontalPadding + 2)
+        .frame(height: NotchGeometry.captionHeight)
     }
 
     // MARK: - Body
 
-    /// Both rails size their icons for the longer of the two, so they match.
-    private var slots: Int { max(vm.leftRail.count, vm.rightRail.count) }
-
     private var content: some View {
-        HStack(spacing: 14) {
-            Rail(vm: vm, panel: panel, tabs: vm.leftRail, slots: slots)
-            panes
-            Rail(vm: vm, panel: panel, tabs: vm.rightRail, slots: slots)
-        }
-        .padding(.horizontal, 14)
-        // The body's height is measured from this same number, so the two
-        // cannot drift apart into a rail that does not fit.
-        .padding(.bottom, NotchGeometry.bodyBottomPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        panes
+            .padding(.horizontal, NotchGeometry.bodyHorizontalPadding)
+            // The body's height is measured from these same numbers, so the
+            // two cannot drift apart into a pane that does not fit.
+            .padding(.bottom, NotchGeometry.bodyBottomPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var panes: some View {
-        // Content is replaced in place — no travel. The rail is vertical and
-        // the panes are unrelated, so a direction would only be decoration.
+        // Content is replaced in place — no travel. The icons sit on both
+        // sides of the notch, so a direction would only be decoration.
         ZStack {
             pane
                 .id(vm.tab)
@@ -151,19 +142,22 @@ struct NotchContentView: View {
     }
 }
 
-/// Tab switcher.
+/// The tool switcher: icons either side of the notch, in the row the pointer
+/// arrives in.
 ///
-/// Hovering switches tabs, but only after the pointer has stopped: a pointer
-/// crossing the rail on its way somewhere else is gone in a few dozen
+/// Hovering chooses, but only after the pointer has stopped: a pointer
+/// crossing the row on its way to an icon further out is gone in a few dozen
 /// milliseconds, while one that came to choose stays put. The same dwell
 /// threshold is what separates "the mouse was flung across the top of the
 /// screen" from "the mouse came to the notch" in `PointerWatcher`.
-private struct Rail: View {
+///
+/// Hover is the main way in for a second reason: this row lies over the menu
+/// bar, and menu bar utilities such as Ice watch for clicks there with a
+/// global event monitor, which sees a click whichever window takes it. A click
+/// on an icon still works, it may just toggle one of those too.
+private struct IconRow: View {
     @ObservedObject var vm: NotchViewModel
     @ObservedObject var panel: PanelState
-    /// Which icons this rail carries — there are two rails now, one per side.
-    let tabs: [any NotchTool]
-    let slots: Int
 
     @State private var hovered: ToolID?
 
@@ -172,57 +166,76 @@ private struct Rail: View {
     private let dwell = Duration.milliseconds(150)
 
     var body: some View {
-        VStack(spacing: NotchGeometry.railSpacing) {
-            ForEach(tabs, id: \.id) { tool in
-                let tab = tool.id
-                Button {
-                    panel.select(tab)
-                } label: {
-                    Image(systemName: tool.symbol)
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(width: 30, height: panel.geometry.railIconHeight(slots: slots))
-                        .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(fill(for: tab))
-                        )
-                        .foregroundStyle(vm.tab == tab ? Color.white : Theme.tertiary)
-                        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        // A render-time transform. Growing the frame instead
-                        // would re-lay out the rail on every hover, and layout
-                        // that runs on pointer movement is exactly the kind
-                        // that shows up as a stutter.
-                        .scaleEffect(hovered == tab ? 1.15 : 1)
-                }
-                .buttonStyle(.plain)
-                .onHover { inside in
-                    if inside {
-                        hovered = tab
-                    } else if hovered == tab {
-                        hovered = nil
-                    }
-                }
-            }
+        let row = panel.row
+        let geometry = panel.geometry
+        let sideWidth = geometry.rowSideWidth(icons: max(row.left.count, row.right.count))
+        HStack(spacing: 0) {
+            // Listed nearest the notch first; drawn left to right.
+            side(Array(row.left.reversed()), width: sideWidth, outerEdge: .leading)
+            Color.clear.frame(width: geometry.rowCenterGap)
+            side(row.right, width: sideWidth, outerEdge: .trailing)
         }
-        .frame(width: 30)
-        // Centred in the height an ordinary tab has, then that block pinned to
-        // the top of whatever height this tab actually got. On the eight normal
-        // tabs the two are the same and nothing moves; on the teleprompter the
-        // extra 192 pt goes to the script below, and the icons stay put.
-        .frame(height: panel.geometry.standardContentHeight, alignment: .center)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(height: geometry.notchSize.height)
         .animation(Theme.contentAnimation, value: hovered)
-        // Moving to another icon cancels the pending switch along with the
+        // Moving to another icon cancels the pending choice along with the
         // task, so only the icon actually rested on ever wins.
         .task(id: hovered) {
-            guard let hovered, hovered != vm.tab else { return }
+            guard let hovered, panel.isOpen else { return }
+            if hovered == vm.tab, panel.isExpanded { return }
             try? await Task.sleep(for: dwell)
             guard !Task.isCancelled else { return }
             panel.select(hovered)
         }
     }
 
-    private func fill(for tab: ToolID) -> Color {
-        if vm.tab == tab { return Theme.surfaceHover }
-        return hovered == tab ? Theme.surface : .clear
+    /// One side of the row. The fuller side's cells are `iconSlot` wide; a
+    /// side with one icon fewer spreads its cells over the same width, so the
+    /// gaps differ by a few points instead of leaving one empty cell at the end.
+    private func side(_ tools: [any NotchTool], width: CGFloat, outerEdge: Edge) -> some View {
+        let inner = width - NotchGeometry.rowEndInset
+        let cell = tools.isEmpty ? 0 : inner / CGFloat(tools.count)
+        return HStack(spacing: 0) {
+            if outerEdge == .leading { Color.clear.frame(width: NotchGeometry.rowEndInset) }
+            ForEach(tools, id: \.id) { tool in
+                icon(tool, cellWidth: cell)
+            }
+            if outerEdge == .trailing { Color.clear.frame(width: NotchGeometry.rowEndInset) }
+        }
+        .frame(width: width, alignment: outerEdge == .leading ? .trailing : .leading)
+    }
+
+    private func icon(_ tool: any NotchTool, cellWidth: CGFloat) -> some View {
+        let tab = tool.id
+        let isCurrent = panel.showsBody && vm.tab == tab
+        return Button {
+            panel.select(tab)
+        } label: {
+            Image(systemName: tool.symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isCurrent || hovered == tab ? Color.white : Theme.secondary)
+                .frame(width: 24, height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isCurrent ? Theme.surfaceHover : hovered == tab ? Theme.surface : .clear)
+                )
+                // A render-time transform. Growing the frame instead would
+                // re-lay out the row on every hover, and layout that runs on
+                // pointer movement is exactly the kind that shows up as a
+                // stutter.
+                .scaleEffect(hovered == tab ? 1.12 : 1)
+                // The whole cell, full row height, is the target: the icons
+                // are small and sit right at the top edge of the screen.
+                .frame(width: cellWidth, height: panel.geometry.notchSize.height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(tool.title)
+        .onHover { inside in
+            if inside {
+                hovered = tab
+            } else if hovered == tab {
+                hovered = nil
+            }
+        }
     }
 }

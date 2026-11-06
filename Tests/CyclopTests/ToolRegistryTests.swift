@@ -20,6 +20,7 @@ struct ToolRegistryTests {
         #expect(!tool.needsKeyboard)
         #expect(!tool.clickTakesKeyboard)
         #expect(!tool.wantsTallBody)
+        #expect(tool.bodySize == .standard)
         #expect(tool.canHide)
         #expect(!tool.holdsPanelOpen)
         #expect(!tool.acceptsFileDrops)

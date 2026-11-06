@@ -50,7 +50,10 @@ final class NotchScreenPanel {
         rootView = nil
     }
 
+    /// From the menu bar: nobody is at the notch to choose a tool, so the
+    /// panel opens straight onto the one last used.
     func toggle() {
+        if !state.isOpen { state.isExpanded = true }
         setOpen(!state.isOpen)
         pointer.setInside(state.isOpen)
     }
@@ -206,6 +209,27 @@ final class NotchScreenPanel {
             }
             .store(in: &cancellables)
 
+        // Dropping the body down, or putting it away, changes how far the
+        // panel reaches. So does switching a tool on or off: the pill is as
+        // wide as its icons. A pass later, for the same reason as above.
+        state.$isExpanded
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { self?.refreshOpenRects() }
+                }
+            }
+            .store(in: &cancellables)
+        vm.$hiddenTabs
+            .dropFirst()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { self?.refreshOpenRects() }
+                }
+            }
+            .store(in: &cancellables)
+
         // Driven by the deliberate request, not by which tab is showing: a
         // hover can land on the typing tab now, and that alone must not take
         // the keyboard away from the window underneath.
@@ -244,6 +268,8 @@ final class NotchScreenPanel {
     /// Hands the keyboard to the panel, or gives it back.
     private func setKeyboard(_ wants: Bool) {
         if wants {
+            // A field to type into is no use behind a folded body.
+            state.isExpanded = true
             setOpen(true)
             pointer.setInside(true)
         }
@@ -311,7 +337,11 @@ final class NotchScreenPanel {
     /// The visual half of closing, one pass after the keyboard was let go.
     private func collapse() {
         guard state.isOpen else { return }
-        withAnimation(Theme.openAnimation) { state.isOpen = false }
+        // Next time it opens as the pill again, ready to choose.
+        withAnimation(Theme.openAnimation) {
+            state.isOpen = false
+            state.isExpanded = false
+        }
 
         // The keyboard goes back only now, a pass after the fold has started:
         // `acceptsKeyboard` no longer does it on its own, precisely because the
@@ -362,9 +392,9 @@ final class NotchScreenPanel {
         // Collapsed, the panel claims only its target strip — on a synthetic
         // notch that is deliberately shallower than the menu bar, so clicks on
         // status items underneath reach them instead of a panel nobody can see.
-        // The open size is the current tab's, not a constant: the teleprompter
-        // is taller, and a rect cut for 208 would leave the bottom half of it
-        // visible but untouchable.
+        // The open size is the pill's or the current tab's, not a constant: a
+        // rect cut for the pill would leave the body below it visible but
+        // untouchable.
         let size = open ? state.openBodySize : geometry.collapsedSize
         var rect = geometry.contentRect(for: size)
         if open {
