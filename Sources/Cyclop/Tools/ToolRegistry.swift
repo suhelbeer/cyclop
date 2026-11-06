@@ -8,6 +8,7 @@ import Foundation
 enum ToolRegistry {
     static func makeAll() -> [any NotchTool] {
         [
+            ClaudeSessionsTool(),
             ShelfTool(),
             ClipboardTool(),
             SnippetsTool(),

@@ -44,6 +44,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
     <key>NSCalendarsUsageDescription</key>
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Cyclop switches to the terminal tab of the Claude Code session you click.</string>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict>
 </plist>
