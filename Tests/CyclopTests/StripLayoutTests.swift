@@ -145,4 +145,52 @@ struct StripLayoutTests {
         #expect(!StripGesture.isOverTitleBar(CGPoint(x: 300, y: 200), of: frames))
         #expect(!StripGesture.isOverTitleBar(CGPoint(x: 720, y: 50), of: frames))
     }
+
+    @Test func atAColumnsOffsetTheSwipeFramesMatchTheRestingOnes() {
+        let cols = columns([1, 1, 1, 1])
+        let widths = cols.map { StripLayout.width(of: $0, in: area) }
+        let positions = StripLayout.positions(widths)
+        for first in 0...2 {
+            let resting = StripLayout.place(cols, focus: first, current: first, in: area)
+            let swiping = StripLayout.frames(cols, offset: StripLayout.offset(first: first, positions: positions), in: area)
+            #expect(resting.frames == swiping)
+        }
+    }
+
+    @Test func midSwipeAColumnSlidesInFromTheRight() {
+        let cols = columns([1, 1, 1])
+        let frames = StripLayout.frames(cols, offset: 300, in: area)
+        // Everything moved left by 300; the third column is partly on screen.
+        #expect(frames[0].minX == gap - 300)
+        #expect(frames[2].minX < area.maxX - StripLayout.sliver)
+        #expect(frames[2].minX == area.minX + StripLayout.positions(cols.map { StripLayout.width(of: $0, in: area) })[2] - 300)
+    }
+
+    @Test func pastTheEndsTheStripMovesAtAThird() {
+        #expect(StripLayout.rubberBand(-90, max: 700) == -30)
+        #expect(StripLayout.rubberBand(790, max: 700) == 730)
+        #expect(StripLayout.rubberBand(350, max: 700) == 350)
+    }
+
+    @Test func aSwipeSettlesOnTheNearestColumnAndAShortOneStillMovesOne() {
+        let widths = columns([1, 1, 1, 1]).map { StripLayout.width(of: $0, in: area) }
+        let positions = StripLayout.positions(widths)
+        let one = StripLayout.offset(first: 1, positions: positions)
+        // Most of the way to column 1: settles there.
+        #expect(StripLayout.settle(widths: widths, offset: one - 100, startFirst: 0, travel: -(one - 100), available: area.width) == 1)
+        // A short 50 pt flick forward still moves one.
+        #expect(StripLayout.settle(widths: widths, offset: 50, startFirst: 0, travel: -50, available: area.width) == 1)
+        // A tiny nudge stays put.
+        #expect(StripLayout.settle(widths: widths, offset: 10, startFirst: 0, travel: -10, available: area.width) == 0)
+        // Never past the last place the strip can rest (two halves on screen).
+        #expect(StripLayout.settle(widths: widths, offset: 5000, startFirst: 2, travel: -5000, available: area.width) == 2)
+        // Backwards past the start stays at the start.
+        #expect(StripLayout.settle(widths: widths, offset: -200, startFirst: 0, travel: 200, available: area.width) == 0)
+    }
+
+    @Test func theLastVisibleColumnFollowsTheFirst() {
+        let widths = columns([1, 1, 1, 1]).map { StripLayout.width(of: $0, in: area) }
+        #expect(StripLayout.lastVisible(widths: widths, first: 1, available: area.width) == 2)
+        #expect(StripLayout.lastVisible(widths: widths, first: 3, available: area.width) == 3)
+    }
 }

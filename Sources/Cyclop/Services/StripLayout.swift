@@ -117,6 +117,77 @@ enum StripLayout {
         return Placement(first: first, frames: frames, visible: visible)
     }
 
+    // MARK: - Continuous view, for following a swipe
+
+    /// Left edge of each column along the strip, the first one at `gap`.
+    static func positions(_ widths: [CGFloat]) -> [CGFloat] {
+        var x = gap
+        return widths.map { width in
+            defer { x += width + gap }
+            return x
+        }
+    }
+
+    /// How far along the strip the view is when `first` is the first column shown.
+    static func offset(first: Int, positions: [CGFloat]) -> CGFloat {
+        positions.indices.contains(first) ? positions[first] - gap : 0
+    }
+
+    /// The furthest the view goes: the end of the strip at the right edge.
+    static func maxOffset(widths: [CGFloat], available: CGFloat) -> CGFloat {
+        guard let last = widths.indices.last else { return 0 }
+        return max(0, positions(widths)[last] + widths[last] + gap - available)
+    }
+
+    /// Past either end the strip follows the fingers at a third of the speed.
+    static func rubberBand(_ offset: CGFloat, max upper: CGFloat) -> CGFloat {
+        if offset < 0 { return offset / 3 }
+        if offset > upper { return upper + (offset - upper) / 3 }
+        return offset
+    }
+
+    /// Frames with the view at any offset, while a swipe is under way. A column
+    /// partly on screen is drawn where it is; one wholly past an edge is parked
+    /// there, as at rest.
+    static func frames(_ columns: [Column], offset: CGFloat, in area: CGRect) -> [CGRect] {
+        let widths = columns.map { width(of: $0, in: area) }
+        let top = area.minY + gap
+        let height = area.height - 2 * gap
+        return zip(widths, positions(widths)).map { width, position in
+            var x = area.minX + position - offset
+            if x + width <= area.minX + sliver { x = area.minX + sliver - width }
+            if x >= area.maxX - sliver { x = area.maxX - sliver }
+            return CGRect(x: x, y: top, width: width, height: height)
+        }
+    }
+
+    /// The first column to settle on when a swipe ends: whichever puts the view
+    /// nearest to where the fingers left it. A swipe that travelled at least
+    /// `nudge` moves at least one column, so a short flick is not lost.
+    static func settle(
+        widths: [CGFloat], offset: CGFloat, startFirst: Int, travel: CGFloat, available: CGFloat, nudge: CGFloat = 40
+    ) -> Int {
+        guard !widths.isEmpty else { return 0 }
+        let positions = positions(widths)
+        let last = widths.count - 1
+        let maxFirst = first(widths: widths, focus: last, current: last, available: available)
+        let candidates = Array(0...maxFirst)
+        var best = candidates.min {
+            abs(Self.offset(first: $0, positions: positions) - offset) < abs(Self.offset(first: $1, positions: positions) - offset)
+        } ?? startFirst
+        if best == startFirst, abs(travel) >= nudge {
+            // Fingers moving left pull the strip forward.
+            best = travel < 0 ? min(startFirst + 1, maxFirst) : max(startFirst - 1, 0)
+        }
+        return best
+    }
+
+    /// The last column shown in full when `first` is the first.
+    static func lastVisible(widths: [CGFloat], first: Int, available: CGFloat) -> Int {
+        guard widths.indices.contains(first) else { return 0 }
+        return lastFitting(widths, from: first, available: available)
+    }
+
     /// Room a run of columns takes, gaps on both sides included.
     private static func span(_ widths: [CGFloat], _ range: ClosedRange<Int>) -> CGFloat {
         widths[range].reduce(0, +) + CGFloat(range.count + 1) * gap

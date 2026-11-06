@@ -69,11 +69,26 @@ final class WindowStrip: ObservableObject {
     private var area: CGRect = .zero
     private var hotKeys: [UInt32] = []
     private var scroll = ScrollStepper()
+    private let mover = StripMover()
+
+    /// A trackpad swipe in progress: the strip follows the fingers until it
+    /// ends, then settles on the nearest column.
+    private struct Swipe {
+        let startFirst: Int
+        let startOffset: CGFloat
+        let horizontal: Bool
+        var travel: CGFloat = 0
+        var frames: [CGWindowID: CGRect] = [:]
+        var lastEvent = Date()
+    }
+    private var swipe: Swipe?
 
     /// One operation at a time, in order: a key held down queues steps
     /// faster than windows can move, and they are folded together.
     private enum Op {
         case arrange([AttachedWindow]), step(Int), focus(CGWindowID), move(CGWindowID, Int), cycleWidth, release
+        /// End of a swipe: focus, first column, and where the swipe left the windows.
+        case settle(Int, Int, [CGWindowID: CGRect])
     }
     private var queue: [Op] = []
     private var draining = false
@@ -106,6 +121,11 @@ final class WindowStrip: ObservableObject {
     /// was used.
     func scrolled(_ event: NSEvent, starting: Bool = false) -> Bool {
         guard isArranged else { return false }
+        // A trackpad gesture is followed continuously; a mouse wheel steps.
+        if event.hasPreciseScrollingDeltas, !event.phase.isEmpty || !event.momentumPhase.isEmpty || swipe != nil {
+            follow(event, starting: starting)
+            return true
+        }
         let delta = scroll.step(
             dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
             precise: event.hasPreciseScrollingDeltas,
@@ -114,6 +134,73 @@ final class WindowStrip: ObservableObject {
         )
         if delta != 0 { step(delta) }
         return true
+    }
+
+    private func follow(_ event: NSEvent, starting: Bool) {
+        // Momentum is not followed: the strip settles where the fingers lift.
+        guard event.momentumPhase.isEmpty else { return }
+        let begins = starting || event.phase.contains(.began) || event.phase.contains(.mayBegin)
+        if begins, swipe != nil { endSwipe() }
+        if swipe == nil {
+            guard !event.phase.contains(.ended), !event.phase.contains(.cancelled) else { return }
+            let widths = columns.map { StripLayout.width(of: $0, in: area) }
+            swipe = Swipe(
+                startFirst: first,
+                startOffset: StripLayout.offset(first: first, positions: StripLayout.positions(widths)),
+                horizontal: abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY)
+            )
+            watchSwipe()
+        }
+        guard var current = swipe else { return }
+        current.travel += current.horizontal ? event.scrollingDeltaX : event.scrollingDeltaY
+        current.lastEvent = Date()
+        let widths = columns.map { StripLayout.width(of: $0, in: area) }
+        let offset = StripLayout.rubberBand(
+            current.startOffset - current.travel,
+            max: StripLayout.maxOffset(widths: widths, available: area.width)
+        )
+        let frames = StripLayout.frames(columns, offset: offset, in: area)
+        var targets: [(AttachedWindow, CGPoint)] = []
+        for (column, frame) in zip(columns, frames) {
+            current.frames[column.id] = frame
+            if let window = windows[column.id] { targets.append((window, frame.origin)) }
+        }
+        swipe = current
+        mover.place(targets)
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { endSwipe() }
+    }
+
+    /// A swipe whose end never arrives (the pointer left the notch mid-way)
+    /// still settles.
+    private func watchSwipe() {
+        Task { @MainActor [weak self] in
+            while let self, let swipe = self.swipe {
+                if Date().timeIntervalSince(swipe.lastEvent) > 0.35 {
+                    self.endSwipe()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+    }
+
+    private func endSwipe() {
+        guard let done = swipe else { return }
+        swipe = nil
+        let widths = columns.map { StripLayout.width(of: $0, in: area) }
+        let offset = StripLayout.offset(first: done.startFirst, positions: StripLayout.positions(widths)) - done.travel
+        let settled = StripLayout.settle(
+            widths: widths, offset: offset, startFirst: done.startFirst, travel: done.travel, available: area.width
+        )
+        // Going back, the column that came in on the left takes focus; going
+        // forward, the one that came in on the right. Otherwise focus stays.
+        var newFocus = focus
+        if settled < done.startFirst {
+            newFocus = settled
+        } else if settled > done.startFirst {
+            newFocus = StripLayout.lastVisible(widths: widths, first: settled, available: area.width)
+        }
+        enqueue(.settle(newFocus, settled, done.frames))
     }
 
     /// Windows that disappeared leave the strip; the rest close ranks.
@@ -135,6 +222,7 @@ final class WindowStrip: ObservableObject {
     /// and switching the tab off, when there is no later to finish in.
     func releaseNow() {
         guard isArranged || !original.isEmpty else { return }
+        mover.stop()
         for (id, frame) in original {
             guard let window = windows[id] else { continue }
             _ = StripAX.setFrame(frame, of: window)
@@ -165,6 +253,7 @@ final class WindowStrip: ObservableObject {
                 case .move(let id, let index): await performMove(id, to: index)
                 case .cycleWidth: await performCycleWidth()
                 case .release: await performRelease()
+                case .settle(let newFocus, let newFirst, let frames): await performSettle(newFocus, newFirst, frames)
                 }
             }
             draining = false
@@ -239,6 +328,16 @@ final class WindowStrip: ObservableObject {
         if moved || delta == 0 { raiseFocused() }
     }
 
+    private func performSettle(_ newFocus: Int, _ newFirst: Int, _ frames: [CGWindowID: CGRect]) async {
+        guard isArranged else { return }
+        focus = min(max(newFocus, 0), columns.count - 1)
+        first = newFirst
+        // The swipe moved the windows; slide on from where it left them.
+        applied.merge(frames) { $1 }
+        await layout()
+        raiseFocused()
+    }
+
     private func performFocus(_ id: CGWindowID) async {
         guard let index = index(of: id) else { return }
         focus = index
@@ -271,6 +370,7 @@ final class WindowStrip: ObservableObject {
 
     private func performRelease() async {
         let restore = original.compactMap { id, frame in windows[id].map { ($0, frame) } }
+        mover.stop()
         reset()
         await Task.detached(priority: .userInitiated) {
             for (window, frame) in restore { _ = StripAX.setFrame(frame, of: window) }
@@ -294,6 +394,14 @@ final class WindowStrip: ObservableObject {
                 moves.append((window, frame))
             }
             guard !moves.isEmpty else { return }
+            // Only positions changing: slide. Sizes changing: set frames at
+            // once and read back what the windows did.
+            if moves.allSatisfy({ applied[$0.0.id]?.size == $0.1.size }) {
+                mover.slide(moves.map { ($0.0, $0.1.origin) })
+                for (window, frame) in moves { applied[window.id] = frame }
+                return
+            }
+            mover.stop()
             let results = await Task.detached(priority: .userInitiated) {
                 moves.map { window, frame in (window.id, frame, StripAX.setFrame(frame, of: window)) }
             }.value
@@ -309,6 +417,7 @@ final class WindowStrip: ObservableObject {
                 }
                 failures[id] = nil
                 applied[id] = asked
+                mover.note([id: asked.origin])
                 guard let index = index(of: id) else { continue }
                 if actual.width > asked.width + 1, actual.width > columns[index].minWidth + 1 {
                     columns[index].minWidth = actual.width
@@ -421,6 +530,8 @@ final class WindowStrip: ObservableObject {
         for id in hotKeys { HotKeys.shared.unregister(id) }
         hotKeys = []
         StripScrollTap.shared.stop()
+        mover.forget()
+        swipe = nil
         columns = []
         windows = [:]
         original = [:]
@@ -508,7 +619,7 @@ enum StripAX {
         return app
     }
 
-    private static func element(for window: AttachedWindow) -> AXUIElement? {
+    static func element(for window: AttachedWindow) -> AXUIElement? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(application(window.pid), kAXWindowsAttribute as CFString, &value) == .success,
               let elements = value as? [AXUIElement]
