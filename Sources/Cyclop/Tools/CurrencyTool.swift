@@ -7,6 +7,8 @@ final class CurrencyTool: NotchTool {
     let symbol = "dollarsign.circle"
     let rail = ToolRail.right
     let needsKeyboard = true
+    // Disabled out of the box; the code stays and Settings turns it on.
+    let enabledByDefault = false
 
     let store = CurrencyStore()
 

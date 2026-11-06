@@ -31,6 +31,7 @@ final class ConfigStore: ObservableObject {
         var privacy: [String] = []
         var teleprompter = Teleprompter()
         var hiddenTabs: [String] = []
+        var enabledTabs: [String] = []
         var fullSizeDrawnNotch = false
         var openDelay: Double = 0.2
 
@@ -49,6 +50,7 @@ final class ConfigStore: ObservableObject {
             privacy = try c.decodeIfPresent([String].self, forKey: .privacy) ?? d.privacy
             teleprompter = try c.decodeIfPresent(Teleprompter.self, forKey: .teleprompter) ?? d.teleprompter
             hiddenTabs = try c.decodeIfPresent([String].self, forKey: .hiddenTabs) ?? d.hiddenTabs
+            enabledTabs = try c.decodeIfPresent([String].self, forKey: .enabledTabs) ?? d.enabledTabs
             fullSizeDrawnNotch = try c.decodeIfPresent(Bool.self, forKey: .fullSizeDrawnNotch) ?? d.fullSizeDrawnNotch
             openDelay = try c.decodeIfPresent(Double.self, forKey: .openDelay) ?? d.openDelay
         }
@@ -152,6 +154,13 @@ final class ConfigStore: ObservableObject {
     var hiddenTabs: [String] {
         get { value.hiddenTabs }
         set { value.hiddenTabs = newValue; persist() }
+    }
+
+    /// Tools that start switched off (`NotchTool.enabledByDefault == false`)
+    /// and that the user has since switched on, by `ToolID.rawValue`.
+    var enabledTabs: [String] {
+        get { value.enabledTabs }
+        set { value.enabledTabs = newValue; persist() }
     }
 
     // MARK: - Migration
