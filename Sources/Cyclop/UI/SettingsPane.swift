@@ -8,8 +8,6 @@ import ServiceManagement
 /// other than as a menu that grows a new row per feature.
 struct SettingsPane: View {
     @ObservedObject var vm: NotchViewModel
-    @ObservedObject var shelf: ShelfStore
-    let screenshots: ScreenshotFolderWatcher
     @ObservedObject private var config = ConfigStore.shared
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -20,6 +18,14 @@ struct SettingsPane: View {
     @State private var openDelay = ConfigStore.shared.openDelay
     @State private var watchScreenshotFolder = false
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
+
+    /// The screenshot and snippet sections belong to tools that may not be
+    /// in the build; they show only when their tool is registered.
+    private var shelfTool: ShelfTool? { vm.tool(ShelfTool.self) }
+    private var snippetsTool: SnippetsTool? { vm.tool(SnippetsTool.self) }
+    private var panelOrder: [any NotchTool] {
+        vm.tools.filter { $0.rail == .left } + vm.tools.filter { $0.rail == .right }
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -46,9 +52,9 @@ struct SettingsPane: View {
                 // there only as long as whoever never uses it can take it off —
                 // and off means quiet too: its background stops with the icon.
                 section(localized("Show in Panel")) {
-                    ForEach(NotchViewModel.Tab.leftRail + NotchViewModel.Tab.rightRail) { tab in
-                        if tab.canHide {
-                            toggleRow(symbol: tab.symbol, title: tab.title, isOn: visibilityBinding(tab))
+                    ForEach(panelOrder, id: \.id) { tool in
+                        if tool.canHide {
+                            toggleRow(symbol: tool.symbol, title: tool.title, isOn: visibilityBinding(tool.id))
                         }
                     }
                 }
@@ -66,6 +72,7 @@ struct SettingsPane: View {
                     )
                 }
 
+                if let shelf = shelfTool {
                 section(localized("Screenshots")) {
                     toggleRow(
                         symbol: "photo.on.rectangle",
@@ -86,19 +93,22 @@ struct SettingsPane: View {
                         disabled: screenshotUsage.files == 0
                     ) {
                         ScreenshotVault.clear()
-                        shelf.load()
+                        shelf.store.load()
                         // The files were just deleted, so the cards have to go
                         // with them. Safe to look here: the vault lives in the
                         // app's own folder, which macOS does not guard.
-                        shelf.refreshFromDisk()
+                        shelf.store.refreshFromDisk()
                         refreshUsage()
                     }
                 }
+                }
 
+                if let snippets = snippetsTool {
                 section(localized("Snippets")) {
                     actionRow(symbol: "doc.text", title: localized("Show Snippets File")) {
-                        vm.snippets.reveal()
+                        snippets.store.reveal()
                     }
+                }
                 }
 
                 // What lives in this file is documented in #67: everything
@@ -139,7 +149,7 @@ struct SettingsPane: View {
             fullSizeNotch = NotchGeometry.drawsFullSizeNotch
             // `config.json` is meant to be edited by hand too.
             openDelay = ConfigStore.shared.openDelay
-            watchScreenshotFolder = screenshots.isEnabled
+            watchScreenshotFolder = shelfTool?.screenshotFolder.isEnabled ?? false
             refreshUsage()
         }
     }
@@ -178,7 +188,7 @@ struct SettingsPane: View {
         )
     }
 
-    private func visibilityBinding(_ tab: NotchViewModel.Tab) -> Binding<Bool> {
+    private func visibilityBinding(_ tab: ToolID) -> Binding<Bool> {
         Binding(
             get: { vm.isVisible(tab) },
             set: { wants in vm.setVisible(tab, wants) }
@@ -240,6 +250,7 @@ struct SettingsPane: View {
         Binding(
             get: { watchScreenshotFolder },
             set: { wants in
+                guard let screenshots = shelfTool?.screenshotFolder else { return }
                 if wants {
                     screenshots.requestAccess { granted in watchScreenshotFolder = granted }
                 } else {

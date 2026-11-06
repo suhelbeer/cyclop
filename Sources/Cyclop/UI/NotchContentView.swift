@@ -78,7 +78,7 @@ struct NotchContentView: View {
     private var header: some View {
         HStack(spacing: 0) {
             if isOpen {
-                Text(vm.tab.title.uppercased())
+                Text(vm.activeTool.title.uppercased())
                     .font(.system(size: 9, weight: .semibold))
                     .tracking(0.8)
                     .foregroundStyle(Theme.tertiary)
@@ -98,63 +98,20 @@ struct NotchContentView: View {
         .frame(height: panel.geometry.notchSize.height)
     }
 
-    @ViewBuilder
     private var trailing: some View {
-        switch vm.tab {
-        case .media:
-            HStack(spacing: 6) {
-                if vm.media.track != nil {
-                    EqualizerBars(isAnimating: vm.media.isPlaying)
-                }
-                Text(vm.media.sourceName ?? "")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Theme.tertiary)
-            }
-        case .shelf:
-            counter(vm.shelf.items.count)
-        case .clipboard:
-            counter(vm.clipboard.items.count)
-        case .snippets:
-            counter(vm.snippets.items.count)
-        case .calendar:
-            if let next = vm.calendar.next {
-                Text(CalendarPane.countdown(to: next, from: vm.calendar.now))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(next.isRunning ? Color.white.opacity(0.8) : Theme.tertiary)
-            }
-        case .translate:
-            // Nothing: the columns name both languages already, and the strip
-            // is the one part of the panel worth not spending on a repeat.
-            EmptyView()
-        case .currency:
-            CurrencyRateDate(currencies: vm.currencies)
-        case .notes:
-            NotesCounter(notes: vm.notes)
-        case .teleprompter:
-            EmptyView()
-        case .utilities:
-            EmptyView()
-        case .settings:
-            EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private func counter(_ value: Int) -> some View {
-        if value > 0 {
-            Text("\(value)")
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
-                .foregroundStyle(Theme.tertiary)
-        }
+        vm.activeTool.headerAccessory()
     }
 
     // MARK: - Body
 
+    /// Both rails size their icons for the longer of the two, so they match.
+    private var slots: Int { max(vm.leftRail.count, vm.rightRail.count) }
+
     private var content: some View {
         HStack(spacing: 14) {
-            Rail(vm: vm, panel: panel, tabs: vm.leftRail)
+            Rail(vm: vm, panel: panel, tabs: vm.leftRail, slots: slots)
             panes
-            Rail(vm: vm, panel: panel, tabs: vm.rightRail)
+            Rail(vm: vm, panel: panel, tabs: vm.rightRail, slots: slots)
         }
         .padding(.horizontal, 14)
         // The body's height is measured from this same number, so the two
@@ -182,63 +139,15 @@ struct NotchContentView: View {
         .clipped()
     }
 
-    @ViewBuilder
     private var pane: some View {
-        switch vm.tab {
-        case .media:
-            MediaPane(media: vm.media)
-        case .shelf:
-            ShelfPane(shelf: vm.shelf, isTargeted: panel.isDropTargeted)
-        case .clipboard:
-            ClipboardPane(clipboard: vm.clipboard, privacy: vm.privacy)
-        case .calendar:
-            CalendarPane(calendar: vm.calendar, privacy: vm.privacy)
-        case .snippets:
-            SnippetsPane(snippets: vm.snippets, privacy: vm.privacy, wantsKeyboard: $panel.wantsKeyboard)
-        case .translate:
-            TranslatePane(translator: vm.translator, wantsKeyboard: $panel.wantsKeyboard)
-        case .currency:
-            CurrencyPane(currencies: vm.currencies, wantsKeyboard: $panel.wantsKeyboard)
-        case .notes:
-            NotesPane(notes: vm.notes, privacy: vm.privacy, wantsKeyboard: $panel.wantsKeyboard)
-        case .teleprompter:
-            TeleprompterPane(prompter: vm.teleprompter, wantsKeyboard: $panel.wantsKeyboard)
-        case .utilities:
-            UtilitiesPane(lock: vm.keyboardLock)
-        case .settings:
-            SettingsPane(vm: vm, shelf: vm.shelf, screenshots: vm.screenshotFolder)
-        }
-    }
-}
-
-/// Watches the note store itself rather than reading through the view model:
-/// notes are born and deleted inside the pane while this counter is on
-/// screen, and the view model deliberately does not forward keystroke-driven
-/// stores.
-private struct NotesCounter: View {
-    @ObservedObject var notes: NoteStore
-
-    var body: some View {
-        if !notes.notes.isEmpty {
-            Text("\(notes.notes.count)")
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
-                .foregroundStyle(Theme.tertiary)
-        }
-    }
-}
-
-/// Same reason as `NotesCounter`: rate fetches must not redraw the whole panel
-/// on every keystroke in the amount fields, so the date badge observes the
-/// store on its own.
-private struct CurrencyRateDate: View {
-    @ObservedObject var currencies: CurrencyStore
-
-    var body: some View {
-        if let date = currencies.rateDate {
-            Text(date)
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
-                .foregroundStyle(Theme.tertiary)
-        }
+        vm.activeTool.pane(
+            ToolContext(
+                vm: vm,
+                privacy: vm.privacy,
+                wantsKeyboard: $panel.wantsKeyboard,
+                isDropTargeted: panel.isDropTargeted
+            )
+        )
     }
 }
 
@@ -253,9 +162,10 @@ private struct Rail: View {
     @ObservedObject var vm: NotchViewModel
     @ObservedObject var panel: PanelState
     /// Which icons this rail carries — there are two rails now, one per side.
-    let tabs: [NotchViewModel.Tab]
+    let tabs: [any NotchTool]
+    let slots: Int
 
-    @State private var hovered: NotchViewModel.Tab?
+    @State private var hovered: ToolID?
 
     /// Long enough to swallow a pass-through, short enough that a deliberate
     /// hover still feels like it answered instantly.
@@ -263,13 +173,14 @@ private struct Rail: View {
 
     var body: some View {
         VStack(spacing: NotchGeometry.railSpacing) {
-            ForEach(tabs) { tab in
+            ForEach(tabs, id: \.id) { tool in
+                let tab = tool.id
                 Button {
                     panel.select(tab)
                 } label: {
-                    Image(systemName: tab.symbol)
+                    Image(systemName: tool.symbol)
                         .font(.system(size: 12, weight: .medium))
-                        .frame(width: 30, height: panel.geometry.railIconHeight)
+                        .frame(width: 30, height: panel.geometry.railIconHeight(slots: slots))
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .fill(fill(for: tab))
@@ -310,7 +221,7 @@ private struct Rail: View {
         }
     }
 
-    private func fill(for tab: NotchViewModel.Tab) -> Color {
+    private func fill(for tab: ToolID) -> Color {
         if vm.tab == tab { return Theme.surfaceHover }
         return hovered == tab ? Theme.surface : .clear
     }

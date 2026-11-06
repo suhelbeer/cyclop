@@ -40,8 +40,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticTermination</key><false/>
     <key>NSSupportsSuddenTermination</key><false/>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Cyclop читает название текущего трека и управляет воспроизведением в Apple Music и Spotify.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
     <key>NSCalendarsUsageDescription</key>
@@ -64,15 +62,6 @@ for lproj in "$ROOT"/Resources/*.lproj; do
     cp -R "$lproj" "$APP/Contents/Resources/"
     echo "    $(basename "$lproj")"
 done
-
-# Now Playing helper. Built here rather than by SwiftPM because it is not linked
-# into the app: it is loaded into /usr/bin/perl at runtime. See helper.m.
-echo "==> building Now Playing helper"
-clang -dynamiclib -fobjc-arc -O2 \
-    -mmacosx-version-min=15.0 \
-    -framework Foundation \
-    -o "$APP/Contents/Resources/libcyclopmedia.dylib" \
-    "$ROOT/Sources/CyclopMediaHelper/helper.m"
 
 # Подпись. Кем — решает CODESIGN_IDENTITY: пусто или «-» — ad-hoc, как для
 # любой локальной сборки; «Developer ID Application: …» — настоящая, с
@@ -109,11 +98,8 @@ xattr -cr "$APP"
 # Заметить это можно было только по возвращающимся запросам TCC — то есть у
 # того, кто уже поставил приложение.
 if [ "$IDENTITY" = "-" ]; then
-    codesign --force --sign - "$APP/Contents/Resources/libcyclopmedia.dylib"
     codesign --force --sign - "$APP"
 else
-    codesign --force --timestamp --sign "$IDENTITY" \
-        "$APP/Contents/Resources/libcyclopmedia.dylib"
     codesign --force --timestamp --options runtime \
         --entitlements "$ROOT/Resources/Cyclop.entitlements" \
         --sign "$IDENTITY" "$APP"
