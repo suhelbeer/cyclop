@@ -124,7 +124,8 @@ struct WindowsPane: View {
                     image: store.largePreview?.id == window.id
                         ? store.largePreview?.image
                         : store.thumbnails[window.id],
-                    isStale: store.stale.contains(window.id)
+                    isStale: store.stale.contains(window.id),
+                    anchorX: thumbnailCenter(of: window)
                 )
                 .onHover { inside in
                     if inside {
@@ -139,6 +140,17 @@ struct WindowsPane: View {
             }
         }
         .padding(.top, 2)
+        // Pinned to the top: the body grows downward for the large preview,
+        // and centred content would slide up under the pointer as it did.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Horizontal centre of the thumbnail showing `window`, measured from the
+    /// pane's leading edge, so the large preview can hang under it.
+    private func thumbnailCenter(of window: AttachedWindow) -> CGFloat {
+        let back: CGFloat = store.backTarget == nil ? 0 : 64 + 8
+        let index = CGFloat(ordered.firstIndex { $0.id == window.id } ?? 0)
+        return back + index * (Thumbnail.width + 8) + Thumbnail.width / 2
     }
 
     private func backButton(_ app: NSRunningApplication) -> some View {
@@ -431,6 +443,8 @@ private struct LargePreview: View {
     let window: AttachedWindow
     let image: CGImage?
     let isStale: Bool
+    /// Centre of the thumbnail it belongs to; the preview hangs under it.
+    let anchorX: CGFloat
 
     /// The box takes the window's own proportions, so a tall window is not
     /// a narrow column in a wide empty frame.
@@ -439,32 +453,49 @@ private struct LargePreview: View {
         return CGFloat(image.width) / CGFloat(image.height)
     }
 
+    /// Largest box of the window's shape that fits the room below the row.
+    private func fitted(in room: CGSize) -> CGSize {
+        guard room.width > 0, room.height > 0 else { return .zero }
+        if room.width / room.height > aspect {
+            return CGSize(width: room.height * aspect, height: room.height)
+        }
+        return CGSize(width: room.width, height: room.width / aspect)
+    }
+
     var body: some View {
-        PreviewFrame(image: image, dimmed: isStale)
-            .aspectRatio(aspect, contentMode: .fit)
-            .overlay(alignment: .bottomLeading) {
-                HStack(spacing: 6) {
-                    Text(window.appName)
-                        .font(.system(size: 10.5, weight: .semibold))
-                    if !window.title.isEmpty, window.title != window.appName {
-                        Text(window.title).font(.system(size: 10.5))
-                    }
-                    if isStale {
-                        Text("Can't capture this window now, showing last frame").font(.system(size: 10))
-                    }
-                }
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(Color.black.opacity(0.6)))
-                .padding(8)
+        GeometryReader { geo in
+            let box = fitted(in: geo.size)
+            // Under its thumbnail, held inside the pane at either end, so it
+            // reads as that window's and not as a picture floating mid-panel.
+            let x = min(max(anchorX - box.width / 2, 0), max(geo.size.width - box.width, 0))
+            PreviewFrame(image: image, dimmed: isStale)
+                .frame(width: box.width, height: box.height)
+                .overlay(alignment: .bottomLeading) { label }
+                .offset(x: x)
+        }
+        // The whole area below the row answers the pointer, not only the
+        // picture: the way down from a thumbnail to the preview should not
+        // count as leaving.
+        .contentShape(Rectangle())
+    }
+
+    private var label: some View {
+        HStack(spacing: 6) {
+            Text(window.appName)
+                .font(.system(size: 10.5, weight: .semibold))
+            if !window.title.isEmpty, window.title != window.appName {
+                Text(window.title).font(.system(size: 10.5))
             }
-            // The whole area below the row answers the pointer, not only the
-            // picture: the way down from a thumbnail at one end to a narrow
-            // preview in the middle should not count as leaving.
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
+            if isStale {
+                Text("Can't capture this window now, showing last frame").font(.system(size: 10))
+            }
+        }
+        .foregroundStyle(.white)
+        .lineLimit(1)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(Color.black.opacity(0.6)))
+        .padding(8)
     }
 }
 

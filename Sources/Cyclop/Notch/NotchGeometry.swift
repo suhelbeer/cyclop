@@ -91,8 +91,8 @@ struct NotchGeometry {
         case .compact: CGSize(width: 400, height: 126)
         case .standard: CGSize(width: 512, height: 162)
         case .tall: CGSize(width: 512, height: 354)
-        case .wide: CGSize(width: 692, height: 354)
-        case .wideStrip: CGSize(width: 692, height: 142)
+        case .wide: CGSize(width: 600, height: 354)
+        case .wideStrip: CGSize(width: 600, height: 126)
         }
     }
 
