@@ -76,19 +76,7 @@ final class WindowStrip: ObservableObject {
     private var offset: CGFloat = 0
     private var area: CGRect = .zero
     private var hotKeys: [UInt32] = []
-    private var scroll = ScrollStepper()
     private let mover = StripMover()
-
-    /// A trackpad swipe in progress: the strip follows the fingers until it
-    /// ends, then settles on the nearest column.
-    private struct Swipe {
-        let startOffset: CGFloat
-        let horizontal: Bool
-        var travel: CGFloat = 0
-        var frames: [CGWindowID: CGRect] = [:]
-        var lastEvent = Date()
-    }
-    private var swipe: Swipe?
 
     /// One operation at a time, in order: a key held down queues steps
     /// faster than windows can move, and they are folded together.
@@ -132,84 +120,28 @@ final class WindowStrip: ObservableObject {
     /// Puts a window at another place in the strip, from a drag in the previews.
     func move(_ id: CGWindowID, to index: Int) { if isArranged { enqueue(.move(id, index)) } }
 
-    /// A scroll over the notch, or one the scroll tap claimed. True when it
-    /// was used.
-    func scrolled(_ event: NSEvent, starting: Bool = false) -> Bool {
+    /// A scroll over the notch, when the scroll tap has not already taken it.
+    /// True when it was used.
+    func scrolled(_ event: NSEvent) -> Bool {
         guard isArranged else { return false }
-        // A trackpad gesture is followed continuously; a mouse wheel steps.
-        if event.hasPreciseScrollingDeltas, !event.phase.isEmpty || !event.momentumPhase.isEmpty || swipe != nil {
-            follow(event, starting: starting)
-            return true
-        }
-        let delta = scroll.step(
-            dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
-            precise: event.hasPreciseScrollingDeltas,
-            began: starting || event.phase.contains(.began),
-            momentum: !event.momentumPhase.isEmpty
+        var sample = ScrollSample(
+            dx: event.scrollingDeltaX, dy: event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas
         )
-        if delta != 0 { step(delta) }
+        if event.phase.contains(.began) { sample.phase = .began }
+        else if event.phase.contains(.mayBegin) { sample.phase = .mayBegin }
+        else if event.phase.contains(.ended) { sample.phase = .ended }
+        else if event.phase.contains(.cancelled) { sample.phase = .cancelled }
+        else if event.phase.contains(.changed) { sample.phase = .changed }
+        if event.momentumPhase.contains(.began) { sample.momentum = .began }
+        else if event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) { sample.momentum = .ended }
+        else if !event.momentumPhase.isEmpty { sample.momentum = .changed }
+        StripFollower.shared.handle(sample)
         return true
     }
 
-    /// Follows the fingers, then the glide macOS adds after they lift, like
-    /// any scrolling view. The strip comes to rest where the glide stops.
-    private func follow(_ event: NSEvent, starting: Bool) {
-        let gliding = !event.momentumPhase.isEmpty
-        // A glide belongs to the swipe before it; without one there is nothing to continue.
-        if gliding, swipe == nil { return }
-        let begins = starting || event.phase.contains(.began) || event.phase.contains(.mayBegin)
-        if begins, swipe != nil { endSwipe() }
-        if swipe == nil {
-            guard !event.phase.contains(.ended), !event.phase.contains(.cancelled) else { return }
-            swipe = Swipe(startOffset: offset, horizontal: abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY))
-            // Windows leaving on the left have to slide under their right-hand
-            // neighbours, so stack them that way round. On its own queue: it
-            // must not hold up the first moves.
-            mover.restack(columns.compactMap { windows[$0.id] }, focus: nil)
-            watchSwipe()
-        }
-        guard var current = swipe else { return }
-        current.travel += current.horizontal ? event.scrollingDeltaX : event.scrollingDeltaY
-        current.lastEvent = Date()
-        let widths = StripLayout.widths(columns, in: area)
-        let shown = StripLayout.rubberBand(
-            current.startOffset - current.travel,
-            max: StripLayout.maxOffset(widths: widths, available: area.width)
-        )
-        let frames = StripLayout.frames(columns, offset: shown, in: area)
-        var targets: [(AttachedWindow, CGPoint)] = []
-        for (column, frame) in zip(columns, frames) {
-            current.frames[column.id] = frame
-            if let window = windows[column.id] { targets.append((window, frame.origin)) }
-        }
-        swipe = current
-        mover.place(targets)
-        // Lifting the fingers starts the glide (if the swipe was quick enough
-        // to have one); the swipe ends with the glide, or shortly after the
-        // fingers if no glide comes.
-        if event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) { endSwipe() }
-    }
-
-    /// Ends a swipe once its events stop: after the fingers lift with no glide,
-    /// or when the pointer left the notch mid-way and the end never came.
-    private func watchSwipe() {
-        Task { @MainActor [weak self] in
-            while let self, let swipe = self.swipe {
-                if Date().timeIntervalSince(swipe.lastEvent) > 0.12 {
-                    self.endSwipe()
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-        }
-    }
-
-    /// The strip stays where the fingers stopped (pulled back inside its ends
-    /// if it was stretched past one).
-    private func endSwipe() {
-        guard let done = swipe else { return }
-        swipe = nil
-        enqueue(.rest(done.startOffset - done.travel, done.frames))
+    /// A swipe came to rest (from `StripFollower`).
+    fileprivate func rested(at stop: CGFloat, frames: [CGWindowID: CGRect]) {
+        if isArranged { enqueue(.rest(stop, frames)) }
     }
 
     /// Windows that disappeared leave the strip; the rest close ranks.
@@ -452,6 +384,7 @@ final class WindowStrip: ObservableObject {
             let frames = StripLayout.frames(columns, offset: offset, in: area)
             let shown = StripLayout.visible(widths: widths, offset: offset, available: area.width)
             inView = Set(shown.map { columns[$0].id })
+            publish()
             var resizes: [(AttachedWindow, CGRect)] = []
             var slides: [(AttachedWindow, CGRect)] = []
             for (column, frame) in zip(columns, frames) where applied[column.id] != frame {
@@ -571,17 +504,31 @@ final class WindowStrip: ObservableObject {
         startScrollTap()
     }
 
-    /// Sideways swipes with ⌃⌥ anywhere, or over a title bar in the strip.
+    /// Swipes with ⌃⌥ anywhere, over the menu bar, or over a title bar.
     private func startScrollTap() {
-        let tap = StripScrollTap.shared
-        tap.frames = { [weak self] in
-            guard let self else { return [] }
-            return columns.filter { inView.contains($0.id) }.compactMap { applied[$0.id] }
-        }
-        tap.onScroll = { [weak self] event, starting in _ = self?.scrolled(event, starting: starting) }
-        if !tap.start() {
+        let follower = StripFollower.shared
+        follower.mover = mover
+        follower.onRest = { stop, frames in WindowStrip.shared.rested(at: stop, frames: frames) }
+        follower.onStep = { delta in WindowStrip.shared.step(delta) }
+        publish()
+        if !StripScrollTap.shared.start() {
             note = localized("Allow Accessibility to swipe the strip from anywhere")
         }
+    }
+
+    /// Hands the strip as it stands to the swipe follower and the scroll tap.
+    private func publish() {
+        var snapshot = StripSnapshot()
+        if isArranged {
+            snapshot.columns = columns
+            snapshot.windows = windows
+            snapshot.area = area
+            snapshot.offset = offset
+            if let screen = Self.stripScreen, let primary = NSScreen.screens.first {
+                snapshot.screenTop = primary.frame.height - screen.frame.maxY
+            }
+        }
+        StripFollower.shared.update(snapshot)
     }
 
     private func reset(keepNote: Bool = false, keepLeftOut: Bool = false) {
@@ -589,8 +536,8 @@ final class WindowStrip: ObservableObject {
         hotKeys = []
         StripScrollTap.shared.stop()
         StripResizeWatcher.shared.stop()
+        StripFollower.shared.update(StripSnapshot())
         mover.forget()
-        swipe = nil
         columns = []
         windows = [:]
         original = [:]

@@ -3,141 +3,192 @@ import AppKit
 /// Which scrolls anywhere on screen move the strip, kept apart from the event
 /// tap so it can be tested.
 ///
-/// Two kinds: a sideways two-finger swipe while ⌃⌥ is held, wherever the
-/// pointer is; and a sideways swipe with no keys over the title bar of a
-/// window in view on the strip. Vertical scrolling always passes through, so
-/// lists and pages scroll as before.
+/// With ⌃⌥ held, a sideways swipe anywhere. With no keys, any swipe or wheel
+/// turn over the menu bar (notch included), and a sideways swipe over the
+/// title bar of a window in view. Everything else passes through, so lists and
+/// pages scroll as before.
 enum StripGesture {
+    enum Zone { case none, menuBar, titleBar }
+
     /// Height of the band at the top of a window that counts as its title bar.
     static let titleBarHeight: CGFloat = 40
 
     /// Whether a scroll belongs to the strip. A mouse wheel has no sideways
-    /// axis, so with ⌃⌥ held its vertical turn counts too.
-    static func claims(modifiersHeld: Bool, overTitleBar: Bool, dx: CGFloat, dy: CGFloat, precise: Bool) -> Bool {
+    /// axis, so where it counts, its vertical turn does.
+    static func claims(modifiersHeld: Bool, zone: Zone, dx: CGFloat, dy: CGFloat, precise: Bool) -> Bool {
         let sideways = abs(dx) > abs(dy)
         if modifiersHeld { return sideways || !precise }
-        return overTitleBar && sideways
+        switch zone {
+        // Nothing in the menu bar scrolls, so any direction can be taken.
+        case .menuBar: return true
+        case .titleBar: return sideways
+        case .none: return false
+        }
     }
 
-    /// True when `point` (Accessibility coordinates) is in the title bar band
-    /// of one of `frames`.
-    static func isOverTitleBar(_ point: CGPoint, of frames: [CGRect]) -> Bool {
-        frames.contains { frame in
+    /// Which zone `point` (Accessibility coordinates) is in.
+    static func zone(of point: CGPoint, menuBand: CGRect, titleBars: [CGRect]) -> Zone {
+        if menuBand.contains(point) { return .menuBar }
+        let overTitle = titleBars.contains { frame in
             CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: titleBarHeight).contains(point)
         }
+        return overTitle ? .titleBar : .none
     }
 }
 
 /// A system-wide scroll event tap, installed only while the strip is arranged.
 ///
+/// It runs on a thread of its own, so it answers macOS at once however busy
+/// the notch is: a tap that is slow to answer gets switched off by macOS, and
+/// swipes then went missing until it was switched back on. Claimed gestures go
+/// to `StripFollower`, also off the main thread.
+///
 /// Active (it swallows the scrolls it uses, so the window under the pointer
 /// does not scroll too), which needs the Accessibility permission the strip
 /// already relies on to move windows. A whole gesture is claimed or passed on
-/// as one: the decision is made on its first event, and its momentum follows.
-@MainActor
-final class StripScrollTap {
+/// as one: the first event that moves decides, and its glide follows.
+final class StripScrollTap: @unchecked Sendable {
     static let shared = StripScrollTap()
 
-    /// Gets each claimed scroll, and whether it is the first of its gesture.
-    /// Claimed scrolls are always swallowed.
-    var onScroll: ((NSEvent, Bool) -> Void)?
-    /// In-view windows, in Accessibility coordinates.
-    var frames: () -> [CGRect] = { [] }
-
+    private let lock = NSLock()
     private var tap: CFMachPort?
-    private var source: CFRunLoopSource?
+    private var runLoop: CFRunLoop?
 
-    /// Where the trackpad gesture in progress (and its momentum) goes. It is
-    /// decided by the first event that actually moves.
+    // Tap-thread state.
     private enum Gesture { case none, undecided, strip, passed }
     private var gesture = Gesture.none
-
-    var isRunning: Bool { tap != nil }
 
     /// False when macOS refused the tap, which means no Accessibility.
     @discardableResult
     func start() -> Bool {
-        guard tap == nil else { return true }
+        if lock.withLock({ tap != nil }) { return true }
         let mask = CGEventMask(1 << CGEventType.scrollWheel.rawValue)
-        guard let tap = CGEvent.tapCreate(
+        guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask,
             callback: { _, type, event, _ in
-                // The tap's source is on the main run loop.
-                let passOn = MainActor.assumeIsolated { StripScrollTap.shared.passesOn(type, event) }
-                return passOn ? Unmanaged.passUnretained(event) : nil
+                StripScrollTap.shared.passesOn(type, event) ? Unmanaged.passUnretained(event) : nil
             },
             userInfo: nil
         ) else { return false }
-        let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        self.tap = tap
-        self.source = source
+        lock.withLock { tap = port }
+        let ready = DispatchSemaphore(value: 0)
+        let thread = Thread { [self] in
+            guard let port = lock.withLock({ tap }) else {
+                ready.signal()
+                return
+            }
+            let source = CFMachPortCreateRunLoopSource(nil, port, 0)
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CGEvent.tapEnable(tap: port, enable: true)
+            lock.withLock { runLoop = CFRunLoopGetCurrent() }
+            ready.signal()
+            CFRunLoopRun()
+        }
+        thread.name = "cyclop.strip.scroll-tap"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        ready.wait()
         return true
     }
 
     func stop() {
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
-        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        tap = nil
-        source = nil
-        gesture = .none
+        let (port, loop) = lock.withLock { () -> (CFMachPort?, CFRunLoop?) in
+            defer {
+                tap = nil
+                runLoop = nil
+            }
+            return (tap, runLoop)
+        }
+        if let port {
+            CGEvent.tapEnable(tap: port, enable: false)
+            CFMachPortInvalidate(port)
+        }
+        if let loop { CFRunLoopStop(loop) }
     }
 
-    /// False to swallow the event.
+    /// False to swallow the event. Runs on the tap's thread.
     private func passesOn(_ type: CGEventType, _ event: CGEvent) -> Bool {
-        let pass = true
         // macOS switches a tap off if it is ever slow; switch it back on.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return pass
+            if let port = lock.withLock({ tap }) { CGEvent.tapEnable(tap: port, enable: true) }
+            return true
         }
-        guard type == .scrollWheel, let ns = NSEvent(cgEvent: event) else { return pass }
+        guard type == .scrollWheel else { return true }
+        var sample = Self.sample(event)
 
-        // The glide after the fingers lift goes where its gesture went.
-        if !ns.momentumPhase.isEmpty {
+        if sample.momentum != .none {
             let mine = gesture == .strip
-            if mine { onScroll?(ns, false) }
-            if ns.momentumPhase.contains(.ended) || ns.momentumPhase.contains(.cancelled) { gesture = .none }
+            if mine { StripFollower.shared.handle(sample) }
+            if sample.momentum == .ended { gesture = .none }
             return !mine
         }
 
-        let moved = ns.scrollingDeltaX != 0 || ns.scrollingDeltaY != 0
-        if ns.phase.contains(.began) || ns.phase.contains(.mayBegin) { gesture = .undecided }
+        let moved = sample.dx != 0 || sample.dy != 0
+        if sample.phase == .began || sample.phase == .mayBegin { gesture = .undecided }
 
-        if !ns.phase.isEmpty {
+        if sample.phase != .none {
             switch gesture {
             case .strip:
-                onScroll?(ns, false)
-                // Stays the strip's through the glide that may follow.
+                StripFollower.shared.handle(sample)
                 return false
             case .passed:
-                if ns.phase.contains(.ended) || ns.phase.contains(.cancelled) { gesture = .none }
-                return pass
+                if sample.phase == .ended || sample.phase == .cancelled { gesture = .none }
+                return true
             case .none, .undecided:
-                guard moved else { return pass }
-                let claimed = claims(event, ns)
-                gesture = claimed ? .strip : .passed
-                guard claimed else { return pass }
-                onScroll?(ns, true)
+                guard moved else { return true }
+                guard claims(event, sample) else {
+                    gesture = .passed
+                    return true
+                }
+                gesture = .strip
+                sample.starting = true
+                StripFollower.shared.handle(sample)
                 return false
             }
         }
 
         // A mouse wheel: no gesture, each turn decides for itself.
-        guard moved, claims(event, ns) else { return pass }
-        onScroll?(ns, false)
+        guard moved, claims(event, sample) else { return true }
+        StripFollower.shared.handle(sample)
         return false
     }
 
-    private func claims(_ event: CGEvent, _ ns: NSEvent) -> Bool {
+    private func claims(_ event: CGEvent, _ sample: ScrollSample) -> Bool {
+        let strip = StripFollower.shared.snapshot
+        guard strip.isArranged else { return false }
         let flags = event.flags.intersection([.maskControl, .maskAlternate, .maskCommand, .maskShift])
         return StripGesture.claims(
             modifiersHeld: flags == [.maskControl, .maskAlternate],
-            overTitleBar: StripGesture.isOverTitleBar(event.location, of: frames()),
-            dx: ns.scrollingDeltaX, dy: ns.scrollingDeltaY,
-            precise: ns.hasPreciseScrollingDeltas
+            zone: StripGesture.zone(of: event.location, menuBand: strip.menuBand, titleBars: strip.titleBars),
+            dx: sample.dx, dy: sample.dy, precise: sample.precise
         )
+    }
+
+    /// The scroll fields of a `CGEvent`, read directly: `NSEvent` is not meant
+    /// to be built off the main thread.
+    static func sample(_ event: CGEvent) -> ScrollSample {
+        let precise = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
+        let dx = precise
+            ? event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
+            : event.getDoubleValueField(.scrollWheelEventDeltaAxis2)
+        let dy = precise
+            ? event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
+            : event.getDoubleValueField(.scrollWheelEventDeltaAxis1)
+        let phase: ScrollSample.Phase = switch event.getIntegerValueField(.scrollWheelEventScrollPhase) {
+        case 1: .began
+        case 2: .changed
+        case 4: .ended
+        case 8: .cancelled
+        case 128: .mayBegin
+        default: .none
+        }
+        let momentum: ScrollSample.Momentum = switch event.getIntegerValueField(.scrollWheelEventMomentumPhase) {
+        case 1: .began
+        case 2: .changed
+        case 3: .ended
+        default: .none
+        }
+        return ScrollSample(dx: CGFloat(dx), dy: CGFloat(dy), precise: precise, phase: phase, momentum: momentum)
     }
 }
