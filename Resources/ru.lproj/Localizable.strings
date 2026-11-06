@@ -178,4 +178,4 @@
 "Parked at the edge" = "У края экрана";
 "Allow Accessibility to swipe the strip from anywhere" = "Разрешите Универсальный доступ, чтобы листать ленту откуда угодно";
 "Move: %@ %@, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder" = "Двигать: %@ %@ или смахивание вбок с ⌃⌥ или по заголовку · перетащите превью, чтобы поменять порядок";
-"%@ width · %@ centre · drag a window's edge for any width" = "%@ — ширина · %@ — по центру · потяните край окна для любой ширины";
+"%@ %@ narrower/wider · %@ preset widths · %@ centre · or drag a window's edge" = "%@ %@ уже/шире · %@ готовые ширины · %@ по центру · или потяните край окна";

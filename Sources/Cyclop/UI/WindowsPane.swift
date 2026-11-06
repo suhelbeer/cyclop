@@ -276,8 +276,8 @@ struct WindowsPane: View {
                     strip.previousKey.label, strip.nextKey.label
                 ))
                 Text(localized(
-                    "%@ width · %@ centre · drag a window's edge for any width",
-                    strip.widthKey.label, strip.centerKey.label
+                    "%@ %@ narrower/wider · %@ preset widths · %@ centre · or drag a window's edge",
+                    strip.narrowerKey.label, strip.widerKey.label, strip.widthKey.label, strip.centerKey.label
                 ))
             }
             if !strip.leftOut.isEmpty {

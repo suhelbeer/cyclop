@@ -179,4 +179,4 @@
 "Parked at the edge" = "Parked at the edge";
 "Allow Accessibility to swipe the strip from anywhere" = "Allow Accessibility to swipe the strip from anywhere";
 "Move: %@ %@, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder" = "Move: %@ %@, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder";
-"%@ width · %@ centre · drag a window's edge for any width" = "%@ width · %@ centre · drag a window's edge for any width";
+"%@ %@ narrower/wider · %@ preset widths · %@ centre · or drag a window's edge" = "%@ %@ narrower/wider · %@ preset widths · %@ centre · or drag a window's edge";
