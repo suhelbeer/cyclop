@@ -8,6 +8,63 @@ import ApplicationServices
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
+/// Switching to a specific window's own desktop, and making it the key window.
+///
+/// Activating an app only takes macOS to the desktop the app was last used on,
+/// not to the one holding the window that was asked for: with Claude windows
+/// tiled on one desktop and a full-screen one on another, the wrong desktop
+/// came up and Accessibility could not see the window to raise it. SkyLight's
+/// "set front process, for this window" does go to that window's desktop. It
+/// is private, and it is what AltTab and similar switchers use; it is looked up
+/// at runtime, so if it ever disappears `focus` returns false and the caller
+/// falls back to plain activation.
+@MainActor
+private enum SkyLight {
+    private typealias SetFront = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt32) -> Int32
+    private typealias PostEvent = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Int32
+    private typealias GetPSN = @convention(c) (pid_t, UnsafeMutableRawPointer) -> Int32
+
+    private static let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+    private static let setFront: SetFront? = symbol("_SLPSSetFrontProcessWithOptions")
+    private static let postEvent: PostEvent? = symbol("SLPSPostEventRecordTo")
+    private static let getPSN: GetPSN? = {
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "GetProcessForPID") else { return nil }
+        return unsafeBitCast(sym, to: GetPSN.self)
+    }()
+
+    private static func symbol<T>(_ name: String) -> T? {
+        guard let handle, let sym = dlsym(handle, name) else { return nil }
+        return unsafeBitCast(sym, to: T.self)
+    }
+
+    /// `kCPSUserGenerated`: treated like a click on the window, which is what
+    /// makes macOS switch to its desktop.
+    private static let userGenerated: UInt32 = 0x200
+
+    static func focus(windowID: CGWindowID, pid: pid_t) -> Bool {
+        guard let setFront, let postEvent, let getPSN else { return false }
+        var psn = [UInt32](repeating: 0, count: 2)
+        let ok = psn.withUnsafeMutableBytes { raw -> Bool in
+            guard getPSN(pid, raw.baseAddress!) == 0 else { return false }
+            guard setFront(raw.baseAddress!, windowID, userGenerated) == 0 else { return false }
+            // Make it the key window: a synthetic mouse-down / mouse-up record
+            // addressed to that window id.
+            var bytes = [UInt8](repeating: 0, count: 0xf8)
+            bytes[0x04] = 0xf8
+            bytes[0x3a] = 0x10
+            var id = windowID
+            memcpy(&bytes[0x3c], &id, MemoryLayout<UInt32>.size)
+            memset(&bytes[0x20], 0xff, 0x10)
+            for type: UInt8 in [0x01, 0x02] {
+                bytes[0x08] = type
+                _ = bytes.withUnsafeMutableBytes { postEvent(raw.baseAddress!, $0.baseAddress!) }
+            }
+            return true
+        }
+        return ok
+    }
+}
+
 /// Raising a specific window of another app, and making an app active.
 ///
 /// Needs Accessibility, which Cyclop already asks for the keyboard lock.
@@ -21,16 +78,46 @@ enum WindowFocus {
         AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
+    /// Brings one specific window to the front, over its siblings.
+    ///
+    /// Three things have to happen, and the order matters. The app is activated
+    /// first: raising a window of an app that is not active only reorders it
+    /// inside that app's layer. Activating can in turn put the app's previous
+    /// front window back on top, so the window is raised again once that has
+    /// settled. And a window on another desktop is invisible to Accessibility
+    /// until macOS has switched to that desktop, so the raise is retried while
+    /// the switch animates, instead of giving up on the first miss.
     static func raise(_ window: AttachedWindow) {
         guard let app = NSRunningApplication(processIdentifier: window.pid) else { return }
-        if hasAccess, let element = axWindow(for: window) {
-            // Un-minimize first: raising a minimized window does nothing.
-            AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
-            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-        }
         if app.isHidden { app.unhide() }
-        activate(app)
+        // Go to this window's own desktop; plain activation is the fallback.
+        if !SkyLight.focus(windowID: window.id, pid: window.pid) { activate(app) }
+        _ = raiseWindow(window)
+        Task { @MainActor in
+            var raised = 0
+            for delay in [200, 300, 400, 500, 600] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                if raiseWindow(window) { raised += 1 }
+                // Twice found: once is not enough, the second one is after the
+                // desktop switch and the activation have both landed.
+                if raised >= 2 { return }
+            }
+        }
+    }
+
+    /// Un-minimizes, makes it the app's main and focused window, and raises
+    /// it. False when Accessibility cannot find the window.
+    @discardableResult
+    private static func raiseWindow(_ window: AttachedWindow) -> Bool {
+        guard hasAccess, let element = axWindow(for: window) else { return false }
+        // Un-minimize first: raising a minimized window does nothing.
+        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        let app = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, element)
+        AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        return true
     }
 
     /// Since macOS 14 a plain `activate()` from an app that is not in front

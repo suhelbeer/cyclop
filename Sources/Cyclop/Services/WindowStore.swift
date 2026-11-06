@@ -72,10 +72,15 @@ final class WindowStore: ObservableObject {
     private var thumbTimer: Timer?
     private var largeTimer: Timer?
     private var refreshing = false
+    private var lastListRefresh = Date.distantPast
     private var capturingLarge = false
 
-    static let thumbInterval: TimeInterval = 1
-    static let largeInterval: TimeInterval = 0.25
+    /// Measured on a 1440×827 window: a capture takes ~25–35 ms, so the large
+    /// preview can run at about 15 frames a second and the strip at 2.
+    static let thumbInterval: TimeInterval = 0.5
+    static let largeInterval: TimeInterval = 0.06
+    /// The window list is heavier than a frame and changes slowly.
+    static let listInterval: TimeInterval = 2
     /// Longest edge, in pixels, of each kind of frame.
     static let thumbSize: CGFloat = 360
     static let largeSize: CGFloat = 1100
@@ -264,7 +269,10 @@ final class WindowStore: ObservableObject {
         refreshing = true
         Task { @MainActor in
             defer { refreshing = false }
-            await refreshWindows()
+            if Date().timeIntervalSince(lastListRefresh) >= Self.listInterval || attached.isEmpty {
+                lastListRefresh = Date()
+                await refreshWindows()
+            }
             // Windows on another desktop are captured too: ScreenCaptureKit
             // cannot see them, `capture` falls back to `OffSpaceCapture`.
             // Anything that still returns nothing keeps its last frame.
