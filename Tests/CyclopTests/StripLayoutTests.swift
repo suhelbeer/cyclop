@@ -192,26 +192,44 @@ struct StripLayoutTests {
         #expect(StripLayout.moving([1, 2, 3], from: 1, to: 7) == [1, 2, 3])
     }
 
-    @Test func sidewaysSwipesWithTheKeysOrOnATitleBarBelongToTheStrip() {
-        // ⌃⌥ held: sideways anywhere, and a mouse wheel's vertical turn too.
-        #expect(StripGesture.claims(modifiersHeld: true, overTitleBar: false, dx: -6, dy: 1, precise: true))
-        #expect(StripGesture.claims(modifiersHeld: true, overTitleBar: false, dx: 0, dy: -1, precise: false))
-        #expect(!StripGesture.claims(modifiersHeld: true, overTitleBar: false, dx: 1, dy: -8, precise: true))
-        // No keys: only sideways, and only over a title bar.
-        #expect(StripGesture.claims(modifiersHeld: false, overTitleBar: true, dx: 5, dy: 0, precise: true))
-        #expect(!StripGesture.claims(modifiersHeld: false, overTitleBar: true, dx: 0, dy: 5, precise: true))
-        #expect(!StripGesture.claims(modifiersHeld: false, overTitleBar: false, dx: 9, dy: 0, precise: true))
-        #expect(!StripGesture.claims(modifiersHeld: false, overTitleBar: true, dx: 0, dy: 1, precise: false))
+    @Test func whichScrollsBelongToTheStrip() {
+        typealias G = StripGesture
+        // ⌃⌥ held: sideways anywhere, and a mouse wheel's turn too.
+        #expect(G.claims(modifiersHeld: true, zone: .none, dx: -6, dy: 1, precise: true))
+        #expect(G.claims(modifiersHeld: true, zone: .none, dx: 0, dy: -1, precise: false))
+        #expect(!G.claims(modifiersHeld: true, zone: .none, dx: 1, dy: -8, precise: true))
+        // Over the menu bar: any direction, trackpad or wheel.
+        #expect(G.claims(modifiersHeld: false, zone: .menuBar, dx: 0, dy: 5, precise: true))
+        #expect(G.claims(modifiersHeld: false, zone: .menuBar, dx: -5, dy: 0, precise: true))
+        #expect(G.claims(modifiersHeld: false, zone: .menuBar, dx: 0, dy: 1, precise: false))
+        // Over a title bar: sideways only.
+        #expect(G.claims(modifiersHeld: false, zone: .titleBar, dx: 5, dy: 0, precise: true))
+        #expect(!G.claims(modifiersHeld: false, zone: .titleBar, dx: 0, dy: 5, precise: true))
+        #expect(!G.claims(modifiersHeld: false, zone: .titleBar, dx: 0, dy: 1, precise: false))
+        // Anywhere else, nothing.
+        #expect(!G.claims(modifiersHeld: false, zone: .none, dx: 9, dy: 0, precise: true))
     }
 
-    @Test func theTitleBarIsTheTopBandOfAWindowInView() {
+    @Test func zonesAreTheMenuBarAndTheTitleBarsInView() {
+        let band = CGRect(x: 0, y: 0, width: 1440, height: 37)
         let frames = [CGRect(x: 8, y: 37, width: 708, height: 887), CGRect(x: 724, y: 37, width: 708, height: 887)]
-        #expect(StripGesture.isOverTitleBar(CGPoint(x: 300, y: 50), of: frames))
-        #expect(StripGesture.isOverTitleBar(CGPoint(x: 1000, y: 76), of: frames))
-        #expect(!StripGesture.isOverTitleBar(CGPoint(x: 300, y: 200), of: frames))
-        #expect(!StripGesture.isOverTitleBar(CGPoint(x: 720, y: 50), of: frames))
+        #expect(StripGesture.zone(of: CGPoint(x: 720, y: 10), menuBand: band, titleBars: frames) == .menuBar)
+        #expect(StripGesture.zone(of: CGPoint(x: 1400, y: 2), menuBand: band, titleBars: frames) == .menuBar)
+        #expect(StripGesture.zone(of: CGPoint(x: 300, y: 50), menuBand: band, titleBars: frames) == .titleBar)
+        #expect(StripGesture.zone(of: CGPoint(x: 1000, y: 76), menuBand: band, titleBars: frames) == .titleBar)
+        #expect(StripGesture.zone(of: CGPoint(x: 300, y: 200), menuBand: band, titleBars: frames) == .none)
+        #expect(StripGesture.zone(of: CGPoint(x: 720, y: 50), menuBand: band, titleBars: frames) == .none)
     }
 
+    @Test func theMenuBandReachesFromTheScreenTopToTheWindows() {
+        var snapshot = StripSnapshot()
+        snapshot.columns = columns([1, 1])
+        snapshot.area = area
+        snapshot.screenTop = 0
+        #expect(snapshot.menuBand == CGRect(x: 0, y: 0, width: area.width, height: area.minY + gap))
+        #expect(snapshot.titleBars.count == 2)
+        #expect(StripSnapshot().menuBand.isNull)
+    }
 
     @Test func aRestingViewNeverLeavesAWindowHalfTuckedAtTheLeft() {
         let cols = columns([1, 1, 1, 1])
