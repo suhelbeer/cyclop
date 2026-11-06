@@ -102,13 +102,14 @@ final class WindowStrip: ObservableObject {
     /// Puts a window at another place in the strip, from a drag in the previews.
     func move(_ id: CGWindowID, to index: Int) { if isArranged { enqueue(.move(id, index)) } }
 
-    /// A scroll over the notch. True when it was used.
-    func scrolled(_ event: NSEvent) -> Bool {
+    /// A scroll over the notch, or one the scroll tap claimed. True when it
+    /// was used.
+    func scrolled(_ event: NSEvent, starting: Bool = false) -> Bool {
         guard isArranged else { return false }
         let delta = scroll.step(
             dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
             precise: event.hasPreciseScrollingDeltas,
-            began: event.phase.contains(.began),
+            began: starting || event.phase.contains(.began),
             momentum: !event.momentumPhase.isEmpty
         )
         if delta != 0 { step(delta) }
@@ -400,11 +401,26 @@ final class WindowStrip: ObservableObject {
         if !refused.isEmpty {
             note = localized("Shortcut taken by another app: %@", refused.joined(separator: " "))
         }
+        startScrollTap()
+    }
+
+    /// Sideways swipes with ⌃⌥ anywhere, or over a title bar in the strip.
+    private func startScrollTap() {
+        let tap = StripScrollTap.shared
+        tap.frames = { [weak self] in
+            guard let self else { return [] }
+            return columns.filter { inView.contains($0.id) }.compactMap { applied[$0.id] }
+        }
+        tap.onScroll = { [weak self] event, starting in _ = self?.scrolled(event, starting: starting) }
+        if !tap.start() {
+            note = localized("Allow Accessibility to swipe the strip from anywhere")
+        }
     }
 
     private func reset(keepNote: Bool = false, keepLeftOut: Bool = false) {
         for id in hotKeys { HotKeys.shared.unregister(id) }
         hotKeys = []
+        StripScrollTap.shared.stop()
         columns = []
         windows = [:]
         original = [:]

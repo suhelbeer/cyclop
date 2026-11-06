@@ -125,4 +125,24 @@ struct StripLayoutTests {
         #expect(StripLayout.moving([1, 2, 3], from: 1, to: 1) == [1, 2, 3])
         #expect(StripLayout.moving([1, 2, 3], from: 1, to: 7) == [1, 2, 3])
     }
+
+    @Test func sidewaysSwipesWithTheKeysOrOnATitleBarBelongToTheStrip() {
+        // ⌃⌥ held: sideways anywhere, and a mouse wheel's vertical turn too.
+        #expect(StripGesture.claims(modifiersHeld: true, overTitleBar: false, dx: -6, dy: 1, precise: true))
+        #expect(StripGesture.claims(modifiersHeld: true, overTitleBar: false, dx: 0, dy: -1, precise: false))
+        #expect(!StripGesture.claims(modifiersHeld: true, overTitleBar: false, dx: 1, dy: -8, precise: true))
+        // No keys: only sideways, and only over a title bar.
+        #expect(StripGesture.claims(modifiersHeld: false, overTitleBar: true, dx: 5, dy: 0, precise: true))
+        #expect(!StripGesture.claims(modifiersHeld: false, overTitleBar: true, dx: 0, dy: 5, precise: true))
+        #expect(!StripGesture.claims(modifiersHeld: false, overTitleBar: false, dx: 9, dy: 0, precise: true))
+        #expect(!StripGesture.claims(modifiersHeld: false, overTitleBar: true, dx: 0, dy: 1, precise: false))
+    }
+
+    @Test func theTitleBarIsTheTopBandOfAWindowInView() {
+        let frames = [CGRect(x: 8, y: 37, width: 708, height: 887), CGRect(x: 724, y: 37, width: 708, height: 887)]
+        #expect(StripGesture.isOverTitleBar(CGPoint(x: 300, y: 50), of: frames))
+        #expect(StripGesture.isOverTitleBar(CGPoint(x: 1000, y: 76), of: frames))
+        #expect(!StripGesture.isOverTitleBar(CGPoint(x: 300, y: 200), of: frames))
+        #expect(!StripGesture.isOverTitleBar(CGPoint(x: 720, y: 50), of: frames))
+    }
 }
