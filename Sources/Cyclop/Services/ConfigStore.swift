@@ -34,6 +34,7 @@ final class ConfigStore: ObservableObject {
         var enabledTabs: [String] = []
         var fullSizeDrawnNotch = false
         var openDelay: Double = 0.2
+        var lastTab: String?
 
         init() {}
 
@@ -53,6 +54,7 @@ final class ConfigStore: ObservableObject {
             enabledTabs = try c.decodeIfPresent([String].self, forKey: .enabledTabs) ?? d.enabledTabs
             fullSizeDrawnNotch = try c.decodeIfPresent(Bool.self, forKey: .fullSizeDrawnNotch) ?? d.fullSizeDrawnNotch
             openDelay = try c.decodeIfPresent(Double.self, forKey: .openDelay) ?? d.openDelay
+            lastTab = try c.decodeIfPresent(String.self, forKey: .lastTab) ?? d.lastTab
         }
     }
 
@@ -154,6 +156,18 @@ final class ConfigStore: ObservableObject {
     var hiddenTabs: [String] {
         get { value.hiddenTabs }
         set { value.hiddenTabs = newValue; persist() }
+    }
+
+    /// The tool last chosen from the icon row, by `ToolID.rawValue`. The panel
+    /// opens straight onto it, across relaunches too. Nil until the first
+    /// choice: until then opening shows the bare row of icons.
+    var lastTab: String? {
+        get { value.lastTab }
+        set {
+            guard value.lastTab != newValue else { return }
+            value.lastTab = newValue
+            persist()
+        }
     }
 
     /// Tools that start switched off (`NotchTool.enabledByDefault == false`)

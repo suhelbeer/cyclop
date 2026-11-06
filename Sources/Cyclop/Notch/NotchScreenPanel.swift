@@ -51,7 +51,7 @@ final class NotchScreenPanel {
     }
 
     /// From the menu bar: nobody is at the notch to choose a tool, so the
-    /// panel opens straight onto the one last used.
+    /// panel opens onto the current one even before anything was chosen.
     func toggle() {
         if !state.isOpen { state.isExpanded = true }
         setOpen(!state.isOpen)
@@ -221,6 +221,18 @@ final class NotchScreenPanel {
                 }
             }
             .store(in: &cancellables)
+        // A tool resizing itself while showing — the Windows tab growing for
+        // its large preview. The size is read from the tool, which this view
+        // does not observe, so the redraw is asked for here.
+        vm.bodySizeChanges
+            .sink { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, state.isOpen else { return }
+                    withAnimation(Theme.openAnimation) { state.objectWillChange.send() }
+                    refreshOpenRects()
+                }
+            }
+            .store(in: &cancellables)
         vm.$hiddenTabs
             .dropFirst()
             .sink { [weak self] _ in
@@ -312,6 +324,9 @@ final class NotchScreenPanel {
         closeActiveRectWork?.cancel()
 
         if open {
+            // Straight onto the tool used last, if there is one; the row is
+            // there to switch. Set before the rects are cut, which read it.
+            if vm.opensOnLastTool { state.isExpanded = true }
             // Grow the interactive area first so the pointer never falls
             // through a region the animation has not covered yet.
             applyActiveRect(open: true)
@@ -337,7 +352,7 @@ final class NotchScreenPanel {
     /// The visual half of closing, one pass after the keyboard was let go.
     private func collapse() {
         guard state.isOpen else { return }
-        // Next time it opens as the pill again, ready to choose.
+        // Opening decides afresh whether the body comes down with it.
         withAnimation(Theme.openAnimation) {
             state.isOpen = false
             state.isExpanded = false

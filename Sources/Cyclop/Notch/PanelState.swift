@@ -29,7 +29,9 @@ final class PanelState: ObservableObject {
 
     /// Whether a tool's body is down below the icon row. Open without it, the
     /// panel is the pill: the notch grown sideways into a row of icons. Resting
-    /// on an icon (or clicking one) drops the body; folding the panel resets it.
+    /// on an icon (or clicking one) drops the body. Once a tool has been
+    /// chosen, every open starts with its body down (`opensOnLastTool`), and
+    /// the row above stays there for switching.
     @Published var isExpanded = false { didSet { notify(isExpanded != oldValue) } }
 
     /// Whether this screen is showing anything beyond the bare notch.
@@ -90,6 +92,7 @@ final class PanelState: ObservableObject {
     /// changes what every screen shows, but only this one starts listening.
     func select(_ id: ToolID) {
         vm.tab = id
+        vm.remember(id)
         isExpanded = true
         if vm.activeTool.needsKeyboard { wantsKeyboard = true }
     }

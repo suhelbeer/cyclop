@@ -6,9 +6,8 @@ import SwiftUI
 struct WindowsPane: View {
     @ObservedObject var store: WindowStore
     @ObservedObject private var strip = WindowStrip.shared
+    @ObservedObject private var peek = WindowsPeek.shared
     @State private var editing = false
-    /// The window in the large preview.
-    @State private var focused: CGWindowID?
     /// The preview being dragged to reorder the strip, and how far.
     @State private var dragging: CGWindowID?
     @State private var dragX: CGFloat = 0
@@ -38,13 +37,21 @@ struct WindowsPane: View {
             }
         }
         .onAppear { store.paneVisible = true }
-        .onDisappear { store.paneVisible = false }
+        .onDisappear {
+            store.paneVisible = false
+            peek.reset()
+        }
+        // The large capture runs only while there is a preview to show.
+        .onChange(of: peek.window) { _, id in
+            if id == nil { store.hovered = nil }
+        }
     }
 
     // MARK: - Previews
 
+    /// The window in the large preview: the one pointed at, if any.
     private var shown: AttachedWindow? {
-        store.attached.first { $0.id == focused } ?? store.attached.first
+        store.attached.first { $0.id == peek.window }
     }
 
     /// The tab's order, or the strip's while it is arranged.
@@ -78,8 +85,10 @@ struct WindowsPane: View {
                             .gesture(reorder(window), including: strip.index(of: window.id) != nil ? .all : .subviews)
                             .onHover { inside in
                                 if inside {
-                                    focused = window.id
+                                    peek.enter(window.id)
                                     store.hovered = window.id
+                                } else {
+                                    peek.leave()
                                 }
                             }
                             .onTapGesture { store.open(window) }
@@ -87,17 +96,6 @@ struct WindowsPane: View {
                     }
                 }
                 .padding(.trailing, 58)
-            }
-            if let window = shown {
-                LargePreview(
-                    window: window,
-                    image: store.largePreview?.id == window.id
-                        ? store.largePreview?.image
-                        : store.thumbnails[window.id],
-                    isStale: store.stale.contains(window.id)
-                )
-                .onHover { inside in store.hovered = inside ? window.id : nil }
-                .onTapGesture { store.open(window) }
             }
             if strip.isArranged || strip.note != nil || !strip.leftOut.isEmpty {
                 stripStatus
@@ -117,6 +115,27 @@ struct WindowsPane: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Theme.secondary)
                 }
+            }
+            // Last, so the row and the lines under it stay put while the body
+            // grows below them to make room.
+            if let window = shown {
+                LargePreview(
+                    window: window,
+                    image: store.largePreview?.id == window.id
+                        ? store.largePreview?.image
+                        : store.thumbnails[window.id],
+                    isStale: store.stale.contains(window.id)
+                )
+                .onHover { inside in
+                    if inside {
+                        peek.enter(window.id)
+                        store.hovered = window.id
+                    } else {
+                        peek.leave()
+                    }
+                }
+                .onTapGesture { store.open(window) }
+                .transition(.opacity)
             }
         }
         .padding(.top, 2)
@@ -413,9 +432,16 @@ private struct LargePreview: View {
     let image: CGImage?
     let isStale: Bool
 
+    /// The box takes the window's own proportions, so a tall window is not
+    /// a narrow column in a wide empty frame.
+    private var aspect: CGFloat {
+        guard let image, image.height > 0 else { return 16 / 10 }
+        return CGFloat(image.width) / CGFloat(image.height)
+    }
+
     var body: some View {
         PreviewFrame(image: image, dimmed: isStale)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .aspectRatio(aspect, contentMode: .fit)
             .overlay(alignment: .bottomLeading) {
                 HStack(spacing: 6) {
                     Text(window.appName)
@@ -434,6 +460,10 @@ private struct LargePreview: View {
                 .background(Capsule().fill(Color.black.opacity(0.6)))
                 .padding(8)
             }
+            // The whole area below the row answers the pointer, not only the
+            // picture: the way down from a thumbnail at one end to a narrow
+            // preview in the middle should not count as leaving.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
     }
 }

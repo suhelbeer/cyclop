@@ -110,6 +110,18 @@ final class NotchViewModel: ObservableObject {
 
     // MARK: - Selection
 
+    /// Whether there is a tool to open straight onto: one was chosen before,
+    /// and it is still switched on. Otherwise the panel opens as the bare row.
+    var opensOnLastTool: Bool {
+        guard let id = ConfigStore.shared.lastTab else { return false }
+        return isVisible(ToolID(id))
+    }
+
+    /// The user picked this tool from the row: remember it for the next open.
+    func remember(_ id: ToolID) {
+        ConfigStore.shared.lastTab = id.rawValue
+    }
+
     @Published var tab: ToolID {
         didSet {
             guard tab != oldValue else { return }
@@ -138,6 +150,11 @@ final class NotchViewModel: ObservableObject {
 
     func suspendAll() { tools.forEach { $0.suspend() } }
 
+    /// Merged "a tool's body size may have changed" signal.
+    var bodySizeChanges: AnyPublisher<Void, Never> {
+        Publishers.MergeMany(tools.map(\.bodySizeChanges)).eraseToAnyPublisher()
+    }
+
     // MARK: - Lifecycle
 
     init() {
@@ -154,7 +171,10 @@ final class NotchViewModel: ObservableObject {
             }
         }
         self.hiddenTabs = hidden
-        let first = tools.first { !hidden.contains($0.id) } ?? tools[0]
+        let remembered = ConfigStore.shared.lastTab.flatMap { id in
+            tools.first { $0.id.rawValue == id && !hidden.contains($0.id) }
+        }
+        let first = remembered ?? tools.first { !hidden.contains($0.id) } ?? tools[0]
         self.tab = first.id
     }
 

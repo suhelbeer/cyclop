@@ -23,8 +23,10 @@ enum ToolBodySize: CaseIterable {
     case standard
     /// Same width, twice the height: a script, a long settings list.
     case tall
-    /// Wider and taller, for rows of window previews.
+    /// Wider and taller, for rows of window previews with a large one below.
     case wide
+    /// As wide, one row of previews high.
+    case wideStrip
 }
 
 /// What the panel hands a tool when it draws the tool's pane.
@@ -67,6 +69,8 @@ protocol NotchTool: AnyObject {
     /// Room the pane gets under the icon row. Defaults to `.tall` for a tool
     /// that wants a tall body and `.standard` otherwise.
     var bodySize: ToolBodySize { get }
+    /// Fires when `bodySize` may have changed while the tool is showing.
+    var bodySizeChanges: AnyPublisher<Void, Never> { get }
     /// False for a tool that can't be switched off (Settings: it holds the switches).
     var canHide: Bool { get }
     /// False for a tool that ships switched off. The user turns it on in Settings.
@@ -107,6 +111,7 @@ extension NotchTool {
     var clickTakesKeyboard: Bool { needsKeyboard }
     var wantsTallBody: Bool { false }
     var bodySize: ToolBodySize { wantsTallBody ? .tall : .standard }
+    var bodySizeChanges: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
     var canHide: Bool { true }
     var enabledByDefault: Bool { true }
     var holdsPanelOpen: Bool { false }
