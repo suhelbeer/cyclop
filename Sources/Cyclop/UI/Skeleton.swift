@@ -29,3 +29,34 @@ struct SkeletonBox: View {
         }
     }
 }
+
+/// Three bars that breathe while something is playing — a glanceable "live"
+/// marker next to the source name.
+struct EqualizerBars: View {
+    var isAnimating: Bool
+    @State private var up = false
+
+    private let low: [CGFloat] = [4, 7, 5]
+    private let high: [CGFloat] = [10, 3, 8]
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 2) {
+            ForEach(0..<3, id: \.self) { index in
+                Capsule()
+                    .fill(Theme.tertiary)
+                    .frame(width: 2, height: up ? high[index] : low[index])
+                    .animation(
+                        isAnimating
+                            ? .easeInOut(duration: 0.44)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(index) * 0.12)
+                            : .easeOut(duration: 0.2),
+                        value: up
+                    )
+            }
+        }
+        .frame(height: 10, alignment: .bottom)
+        .onAppear { up = isAnimating }
+        .onChange(of: isAnimating) { _, playing in up = playing }
+    }
+}

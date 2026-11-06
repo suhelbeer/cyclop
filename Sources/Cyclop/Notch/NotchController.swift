@@ -88,6 +88,10 @@ final class NotchController {
     /// method per section would be four methods that only forward.
     var privacy: PrivacyMode? { vm?.privacy }
 
+    /// Whether a tool is switched on in Settings. The menu bar's privacy
+    /// submenu asks, so a switched-off tool leaves it too.
+    func isToolVisible(_ id: ToolID) -> Bool { vm?.isVisible(id) ?? true }
+
     // MARK: - Displays
 
     /// Diffs the connected displays against what is already built, keyed by

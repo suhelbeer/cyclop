@@ -19,10 +19,10 @@ struct SettingsPane: View {
     @State private var watchScreenshotFolder = false
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
 
-    /// The screenshot and snippet sections belong to tools that may not be
-    /// in the build; they show only when their tool is registered.
-    private var shelfTool: ShelfTool? { vm.tool(ShelfTool.self) }
-    private var snippetsTool: SnippetsTool? { vm.tool(SnippetsTool.self) }
+    /// The screenshot and snippet sections belong to their tools, so they
+    /// show only while that tool is switched on.
+    private var shelfTool: ShelfTool? { vm.tool(ShelfTool.self).flatMap { vm.isVisible($0.id) ? $0 : nil } }
+    private var snippetsTool: SnippetsTool? { vm.tool(SnippetsTool.self).flatMap { vm.isVisible($0.id) ? $0 : nil } }
     private var panelOrder: [any NotchTool] {
         vm.tools.filter { $0.rail == .left } + vm.tools.filter { $0.rail == .right }
     }

@@ -40,7 +40,7 @@ struct ToolRegistryTests {
     /// Persisted in `config.json`; renaming one silently resets a user's switch.
     @Test func shippedIdsStayPut() {
         let ids = Set(ToolRegistry.makeAll().map(\.id.rawValue))
-        for shipped in ["shelf", "clipboard", "snippets", "calendar", "translate",
+        for shipped in ["media", "shelf", "clipboard", "snippets", "calendar", "translate",
                         "notes", "currency", "teleprompter", "utilities", "settings"] {
             #expect(ids.contains(shipped))
         }
