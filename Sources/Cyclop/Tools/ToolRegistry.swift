@@ -9,6 +9,7 @@ enum ToolRegistry {
     static func makeAll() -> [any NotchTool] {
         [
             WindowsTool(),
+            MusicTool(),
             ShelfTool(),
             ClipboardTool(),
             SnippetsTool(),

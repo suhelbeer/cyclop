@@ -139,6 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         privacyAllItem?.state = privacy.coversAll ? .on : .off
         for (section, item) in privacySectionItems {
             item.state = privacy.covers(section) ? .on : .off
+            // Section names match tool ids; a switched-off tool is not offered.
+            item.isHidden = !(controller?.isToolVisible(ToolID(section.rawValue)) ?? true)
         }
     }
 }

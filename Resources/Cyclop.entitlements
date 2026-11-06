@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Apple events drive the fallback route for the Music tab: AppleScript
+         for Apple Music and Spotify, used only when the Now Playing helper
+         cannot read the system. TCC still asks the user the first time. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
     <!-- Под hardened runtime без этого ключа система отказывает в доступе
          к календарю до того, как TCC успевает спросить. -->
     <key>com.apple.security.personal-information.calendars</key>

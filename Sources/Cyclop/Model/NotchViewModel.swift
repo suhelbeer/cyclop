@@ -98,7 +98,7 @@ final class NotchViewModel: ObservableObject {
 
     /// A tool somewhere is holding the panel open (the screen pin is chosen by
     /// the controller from this).
-    var anyToolHoldsOpen: Bool { tools.contains { $0.holdsPanelOpen } }
+    var anyToolHoldsOpen: Bool { visibleTools.contains { $0.holdsPanelOpen } }
 
     /// Merged "something that can pin the panel changed" signal.
     var holdChanges: AnyPublisher<Void, Never> {
@@ -157,7 +157,11 @@ final class NotchViewModel: ObservableObject {
     private func wireScreenshots() {
         guard let shelf = tool(ShelfTool.self) else { return }
         if let clipboard = tool(ClipboardTool.self) {
-            clipboard.store.wantsImages = { Self.saveClipboardImagesEnabled }
+            // Images are kept only for the shelf, so a shelf that is
+            // switched off takes none.
+            clipboard.store.wantsImages = { [weak self] in
+                Self.saveClipboardImagesEnabled && (self?.isVisible(shelf.id) ?? false)
+            }
             clipboard.store.onImage = { [weak self] png in
                 guard let self, let url = ScreenshotVault.save(png) else { return }
                 self.receivedScreenshot(at: url)
@@ -172,9 +176,9 @@ final class NotchViewModel: ObservableObject {
     /// the panel. It goes on the shelf either way, but only switches to showing
     /// it when nobody is mid-sentence.
     func receivedScreenshot(at url: URL) {
-        guard let shelf = tool(ShelfTool.self) else { return }
+        guard let shelf = tool(ShelfTool.self), isVisible(shelf.id) else { return }
         shelf.store.add([url])
-        guard !isTyping, isVisible(shelf.id) else { return }
+        guard !isTyping else { return }
         tab = shelf.id
     }
 
