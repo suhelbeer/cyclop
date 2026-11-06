@@ -242,7 +242,7 @@ struct WindowsPane: View {
         VStack(alignment: .leading, spacing: 2) {
             if strip.isArranged {
                 Text(localized(
-                    "%@ %@ or scroll over the notch to move · %@ width · drag previews to reorder",
+                    "%@ %@ or swipe sideways with ⌃⌥ or on a title bar · %@ width · drag previews to reorder",
                     strip.previousKey.label, strip.nextKey.label, strip.widthKey.label
                 ))
             }
