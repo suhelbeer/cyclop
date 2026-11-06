@@ -46,3 +46,10 @@ struct ToolRegistryTests {
         }
     }
 }
+
+extension ToolRegistryTests {
+    @Test func currencyShipsOff() throws {
+        let currency = try #require(ToolRegistry.makeAll().first { $0.id == "currency" })
+        #expect(!currency.enabledByDefault)
+    }
+}

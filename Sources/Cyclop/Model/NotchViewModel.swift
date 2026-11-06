@@ -64,6 +64,9 @@ final class NotchViewModel: ObservableObject {
             if tab == id { tab = firstVisibleTool }
         }
         ConfigStore.shared.hiddenTabs = hiddenTabs.map(\.rawValue).sorted()
+        ConfigStore.shared.enabledTabs = tools
+            .filter { !$0.enabledByDefault && isVisible($0.id) }
+            .map { $0.id.rawValue }.sorted()
     }
 
     /// Whether any screen shows more than the bare notch. Tools whose clocks
@@ -112,7 +115,13 @@ final class NotchViewModel: ObservableObject {
         self.tools = tools
         var hidden = Set<ToolID>()
         let saved = Set(ConfigStore.shared.hiddenTabs.map { ToolID($0) })
-        for tool in tools where tool.canHide && saved.contains(tool.id) { hidden.insert(tool.id) }
+        let enabled = Set(ConfigStore.shared.enabledTabs.map { ToolID($0) })
+        for tool in tools where tool.canHide {
+            // Off if the user switched it off, or it ships off and they have not switched it on.
+            if saved.contains(tool.id) || (!tool.enabledByDefault && !enabled.contains(tool.id)) {
+                hidden.insert(tool.id)
+            }
+        }
         self.hiddenTabs = hidden
         let first = tools.first { !hidden.contains($0.id) && $0.rail == .left }
             ?? tools.first { !hidden.contains($0.id) }

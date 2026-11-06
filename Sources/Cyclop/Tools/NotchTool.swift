@@ -52,6 +52,8 @@ protocol NotchTool: AnyObject {
     var wantsTallBody: Bool { get }
     /// False for a tool that can't be switched off (Settings: it holds the switches).
     var canHide: Bool { get }
+    /// False for a tool that ships switched off. The user turns it on in Settings.
+    var enabledByDefault: Bool { get }
     /// Panel stays open with no pointer on it while this is true.
     var holdsPanelOpen: Bool { get }
     /// Fires when `holdsPanelOpen` may have changed.
@@ -85,6 +87,7 @@ extension NotchTool {
     var clickTakesKeyboard: Bool { needsKeyboard }
     var wantsTallBody: Bool { false }
     var canHide: Bool { true }
+    var enabledByDefault: Bool { true }
     var holdsPanelOpen: Bool { false }
     var holdsPanelOpenChanges: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
     var acceptsFileDrops: Bool { false }
