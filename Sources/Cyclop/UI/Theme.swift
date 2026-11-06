@@ -14,6 +14,8 @@ enum Theme {
     static let collapsedBottomRadius: CGFloat = 9
     static let openTopRadius: CGFloat = 12
     static let openBottomRadius: CGFloat = 22
+    /// The icon row on its own, before a tool is chosen: one notch tall.
+    static let pillBottomRadius: CGFloat = 13
 
     static let secondary = Color.white.opacity(0.55)
     static let tertiary = Color.white.opacity(0.32)

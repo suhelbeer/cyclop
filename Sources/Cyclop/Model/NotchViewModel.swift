@@ -40,12 +40,43 @@ final class NotchViewModel: ObservableObject {
     func isVisible(_ id: ToolID) -> Bool { !hiddenTabs.contains(id) }
 
     var visibleTools: [any NotchTool] { tools.filter { isVisible($0.id) } }
-    var leftRail: [any NotchTool] { visibleTools.filter { $0.rail == .left } }
-    var rightRail: [any NotchTool] { visibleTools.filter { $0.rail == .right } }
+
+    /// The icons either side of the notch, each side listed nearest the camera
+    /// first.
+    ///
+    /// The nearest spots are the shortest trip from where the pointer arrives,
+    /// so they go to the tools listed first in the registry, alternating left
+    /// and right. A tool that cannot be hidden (Settings) is the exception: it
+    /// is rarely the reason for the trip, so it takes the far right end. The
+    /// left side takes the odd one out, keeping the two within one icon of
+    /// each other, so the pill — which is as wide as its fuller side twice —
+    /// carries at most one empty cell's worth of slack.
+    var notchRow: (left: [any NotchTool], right: [any NotchTool]) {
+        Self.splitRow(visibleTools, pinnedRight: { !$0.canHide })
+    }
+
+    /// The split behind `notchRow`, kept free of tools so it can be tested.
+    nonisolated static func splitRow<T>(_ items: [T], pinnedRight: (T) -> Bool) -> (left: [T], right: [T]) {
+        let pinned = items.filter(pinnedRight)
+        let rest = items.filter { !pinnedRight($0) }
+        let leftCount = (items.count + 1) / 2
+        let rightRoom = items.count - leftCount - pinned.count
+        var left: [T] = []
+        var right: [T] = []
+        for item in rest {
+            let wantsLeft = left.count <= right.count
+            if (wantsLeft && left.count < leftCount) || right.count >= rightRoom {
+                left.append(item)
+            } else {
+                right.append(item)
+            }
+        }
+        return (left, right + pinned)
+    }
 
     /// Where to land when the tool on screen is the one being taken away.
     private var firstVisibleTool: ToolID {
-        (leftRail.first ?? rightRail.first ?? tools[0]).id
+        (visibleTools.first ?? tools[0]).id
     }
 
     func setVisible(_ id: ToolID, _ visible: Bool) {
@@ -79,6 +110,18 @@ final class NotchViewModel: ObservableObject {
 
     // MARK: - Selection
 
+    /// Whether there is a tool to open straight onto: one was chosen before,
+    /// and it is still switched on. Otherwise the panel opens as the bare row.
+    var opensOnLastTool: Bool {
+        guard let id = ConfigStore.shared.lastTab else { return false }
+        return isVisible(ToolID(id))
+    }
+
+    /// The user picked this tool from the row: remember it for the next open.
+    func remember(_ id: ToolID) {
+        ConfigStore.shared.lastTab = id.rawValue
+    }
+
     @Published var tab: ToolID {
         didSet {
             guard tab != oldValue else { return }
@@ -107,6 +150,11 @@ final class NotchViewModel: ObservableObject {
 
     func suspendAll() { tools.forEach { $0.suspend() } }
 
+    /// Merged "a tool's body size may have changed" signal.
+    var bodySizeChanges: AnyPublisher<Void, Never> {
+        Publishers.MergeMany(tools.map(\.bodySizeChanges)).eraseToAnyPublisher()
+    }
+
     // MARK: - Lifecycle
 
     init() {
@@ -123,9 +171,10 @@ final class NotchViewModel: ObservableObject {
             }
         }
         self.hiddenTabs = hidden
-        let first = tools.first { !hidden.contains($0.id) && $0.rail == .left }
-            ?? tools.first { !hidden.contains($0.id) }
-            ?? tools[0]
+        let remembered = ConfigStore.shared.lastTab.flatMap { id in
+            tools.first { $0.id.rawValue == id && !hidden.contains($0.id) }
+        }
+        let first = remembered ?? tools.first { !hidden.contains($0.id) } ?? tools[0]
         self.tab = first.id
     }
 

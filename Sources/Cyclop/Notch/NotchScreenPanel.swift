@@ -50,7 +50,10 @@ final class NotchScreenPanel {
         rootView = nil
     }
 
+    /// From the menu bar: nobody is at the notch to choose a tool, so the
+    /// panel opens onto the current one even before anything was chosen.
     func toggle() {
+        if !state.isOpen { state.isExpanded = true }
         setOpen(!state.isOpen)
         pointer.setInside(state.isOpen)
     }
@@ -155,7 +158,7 @@ final class NotchScreenPanel {
         // Cut for the tab that will be showing, not for the standard body: the
         // tab is shared, so a screen built while the teleprompter is up opens
         // straight into a body twice as deep as the rest.
-        pointer.closeRect = geometry.hoverRect(for: state.openBodySize)
+        pointer.closeRect = state.openHoverRect
         // Staying put is what asks for the panel, under either kind of notch.
         // Under one we drew are menu bar icons or, with the bar hidden,
         // browser tabs. A hole has nothing under it, but the browser's tab
@@ -206,6 +209,39 @@ final class NotchScreenPanel {
             }
             .store(in: &cancellables)
 
+        // Dropping the body down, or putting it away, changes how far the
+        // panel reaches. So does switching a tool on or off: the pill is as
+        // wide as its icons. A pass later, for the same reason as above.
+        state.$isExpanded
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { self?.refreshOpenRects() }
+                }
+            }
+            .store(in: &cancellables)
+        // A tool resizing itself while showing — the Windows tab growing for
+        // its large preview. The size is read from the tool, which this view
+        // does not observe, so the redraw is asked for here.
+        vm.bodySizeChanges
+            .sink { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.state.isOpen else { return }
+                    withAnimation(Theme.openAnimation) { self.state.objectWillChange.send() }
+                    self.refreshOpenRects()
+                }
+            }
+            .store(in: &cancellables)
+        vm.$hiddenTabs
+            .dropFirst()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    DispatchQueue.main.async { self?.refreshOpenRects() }
+                }
+            }
+            .store(in: &cancellables)
+
         // Driven by the deliberate request, not by which tab is showing: a
         // hover can land on the typing tab now, and that alone must not take
         // the keyboard away from the window underneath.
@@ -230,7 +266,7 @@ final class NotchScreenPanel {
         // A fresh panel starts closed. If the pointer is already sitting on
         // it — a display just woke, or was plugged in under the cursor —
         // reopen at once instead of waiting for a trip back to the notch.
-        if geometry.hoverRect(for: state.openBodySize).contains(NSEvent.mouseLocation) {
+        if state.openHoverRect.contains(NSEvent.mouseLocation) {
             pointer.setInside(true)
             setOpen(true)
         }
@@ -244,6 +280,8 @@ final class NotchScreenPanel {
     /// Hands the keyboard to the panel, or gives it back.
     private func setKeyboard(_ wants: Bool) {
         if wants {
+            // A field to type into is no use behind a folded body.
+            state.isExpanded = true
             setOpen(true)
             pointer.setInside(true)
         }
@@ -286,6 +324,9 @@ final class NotchScreenPanel {
         closeActiveRectWork?.cancel()
 
         if open {
+            // Straight onto the tool used last, if there is one; the row is
+            // there to switch. Set before the rects are cut, which read it.
+            if vm.opensOnLastTool { state.isExpanded = true }
             // Grow the interactive area first so the pointer never falls
             // through a region the animation has not covered yet.
             applyActiveRect(open: true)
@@ -311,7 +352,11 @@ final class NotchScreenPanel {
     /// The visual half of closing, one pass after the keyboard was let go.
     private func collapse() {
         guard state.isOpen else { return }
-        withAnimation(Theme.openAnimation) { state.isOpen = false }
+        // Opening decides afresh whether the body comes down with it.
+        withAnimation(Theme.openAnimation) {
+            state.isOpen = false
+            state.isExpanded = false
+        }
 
         // The keyboard goes back only now, a pass after the fold has started:
         // `acceptsKeyboard` no longer does it on its own, precisely because the
@@ -344,7 +389,7 @@ final class NotchScreenPanel {
             // Resync either way. A pointer that is still on the panel has to be
             // recorded as inside, or hover tracking stays convinced it left and
             // the panel hangs open until the notch is touched again.
-            let away = !geometry.hoverRect(for: state.openBodySize).contains(NSEvent.mouseLocation)
+            let away = !state.openHoverRect.contains(NSEvent.mouseLocation)
             pointer.setInside(!away)
             if away, !holdsOpen { setOpen(false) }
         }
@@ -354,7 +399,7 @@ final class NotchScreenPanel {
     private func refreshOpenRects() {
         guard state.isOpen else { return }
         applyActiveRect(open: true)
-        pointer.closeRect = geometry.hoverRect(for: state.openBodySize)
+        pointer.closeRect = state.openHoverRect
     }
 
     private func applyActiveRect(open: Bool) {
@@ -362,11 +407,12 @@ final class NotchScreenPanel {
         // Collapsed, the panel claims only its target strip — on a synthetic
         // notch that is deliberately shallower than the menu bar, so clicks on
         // status items underneath reach them instead of a panel nobody can see.
-        // The open size is the current tab's, not a constant: the teleprompter
-        // is taller, and a rect cut for 208 would leave the bottom half of it
-        // visible but untouchable.
+        // The open size is the pill's or the current tab's, not a constant: a
+        // rect cut for the pill would leave the body below it visible but
+        // untouchable.
         let size = open ? state.openBodySize : geometry.collapsedSize
-        var rect = geometry.contentRect(for: size)
+        let offset = open ? state.openBodyOffset : 0
+        var rect = geometry.contentRect(for: size, offsetX: offset)
         if open {
             // Slack so the concave shoulders stay grabbable. Never while
             // collapsed: that would swallow clicks on menu bar items next to
@@ -375,7 +421,7 @@ final class NotchScreenPanel {
         }
         rootView.activeRect = rect
         pointer.interactiveRect = geometry
-            .contentScreenRect(for: size)
+            .contentScreenRect(for: size, offsetX: offset)
             .insetBy(dx: open ? -Theme.openTopRadius : 0, dy: 0)
     }
 }

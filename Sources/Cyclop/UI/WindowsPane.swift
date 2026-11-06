@@ -6,9 +6,7 @@ import SwiftUI
 struct WindowsPane: View {
     @ObservedObject var store: WindowStore
     @ObservedObject private var strip = WindowStrip.shared
-    @State private var editing = false
-    /// The window in the large preview.
-    @State private var focused: CGWindowID?
+    @ObservedObject private var peek = WindowsPeek.shared
     /// The preview being dragged to reorder the strip, and how far.
     @State private var dragging: CGWindowID?
     @State private var dragX: CGFloat = 0
@@ -18,7 +16,7 @@ struct WindowsPane: View {
             Group {
                 if !store.hasScreenAccess {
                     accessPrompt
-                } else if editing {
+                } else if peek.editing {
                     attachList
                 } else if store.attached.isEmpty {
                     emptyState
@@ -28,7 +26,7 @@ struct WindowsPane: View {
             }
             if store.hasScreenAccess {
                 HStack(spacing: 6) {
-                    if !editing && !store.attached.isEmpty {
+                    if !peek.editing && !store.attached.isEmpty {
                         // One layout at a time: each restores its own saved frames.
                         if !store.isFilled { stripToggle }
                         if !strip.isArranged { fillToggle }
@@ -38,13 +36,21 @@ struct WindowsPane: View {
             }
         }
         .onAppear { store.paneVisible = true }
-        .onDisappear { store.paneVisible = false }
+        .onDisappear {
+            store.paneVisible = false
+            peek.reset()
+        }
+        // The large capture runs only while there is a preview to show.
+        .onChange(of: peek.window) { _, id in
+            if id == nil { store.hovered = nil }
+        }
     }
 
     // MARK: - Previews
 
+    /// The window in the large preview: the one pointed at, if any.
     private var shown: AttachedWindow? {
-        store.attached.first { $0.id == focused } ?? store.attached.first
+        store.attached.first { $0.id == peek.window }
     }
 
     /// The tab's order, or the strip's while it is arranged.
@@ -78,48 +84,99 @@ struct WindowsPane: View {
                             .gesture(reorder(window), including: strip.index(of: window.id) != nil ? .all : .subviews)
                             .onHover { inside in
                                 if inside {
-                                    focused = window.id
+                                    peek.enter(window.id)
                                     store.hovered = window.id
+                                } else {
+                                    peek.leave()
                                 }
                             }
                             .onTapGesture { store.open(window) }
                         }
                     }
                 }
+                // More previews than fit: fade them out before the buttons, so
+                // the cut reads as "scrolls on" rather than as a clipped card.
+                .mask(alignment: .trailing) {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                        if rowOverflows {
+                            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 28)
+                        }
+                    }
+                }
                 .padding(.trailing, 58)
             }
+            // The help lines give way to the large preview while it is down,
+            // so it sits right under the row instead of 35 pt lower.
+            if shown == nil {
+                statusLines
+            }
+            // Last, so the row stays put while the body grows below it.
             if let window = shown {
                 LargePreview(
                     window: window,
                     image: store.largePreview?.id == window.id
                         ? store.largePreview?.image
                         : store.thumbnails[window.id],
-                    isStale: store.stale.contains(window.id)
+                    isStale: store.stale.contains(window.id),
+                    anchorX: thumbnailCenter(of: window)
                 )
-                .onHover { inside in store.hovered = inside ? window.id : nil }
-                .onTapGesture { store.open(window) }
-            }
-            if strip.isArranged || strip.note != nil || !strip.leftOut.isEmpty {
-                stripStatus
-            }
-            if let note = store.fillNote {
-                Text(note)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.tertiary)
-            }
-            if !WindowFocus.hasAccess {
-                HStack(spacing: 6) {
-                    Text("Allow Accessibility so a click brings up that exact window")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.tertiary)
-                    Button(localized("Allow")) { WindowFocus.requestAccess() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Theme.secondary)
+                .onHover { inside in
+                    if inside {
+                        peek.enter(window.id)
+                        store.hovered = window.id
+                    } else {
+                        peek.leave()
+                    }
                 }
+                .onTapGesture { store.open(window) }
+                .transition(.opacity)
             }
         }
         .padding(.top, 2)
+        // Pinned to the top: the body grows downward for the large preview,
+        // and centred content would slide up under the pointer as it did.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Strip help and notes under the thumbnails. `WindowsTool.bodySize`
+    /// mirrors these conditions to size the short body, so keep them in step.
+    @ViewBuilder private var statusLines: some View {
+        if strip.isArranged || strip.note != nil || !strip.leftOut.isEmpty {
+            stripStatus
+        }
+        if let note = store.fillNote {
+            Text(note)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.tertiary)
+        }
+        if !WindowFocus.hasAccess {
+            HStack(spacing: 6) {
+                Text("Allow Accessibility so a click brings up that exact window")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.tertiary)
+                Button(localized("Allow")) { WindowFocus.requestAccess() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Theme.secondary)
+            }
+        }
+    }
+
+    /// Whether the previews run on past the buttons and need the fade.
+    private var rowOverflows: Bool {
+        let back: CGFloat = store.backTarget == nil ? 0 : 64 + 8
+        let room = NotchGeometry.paneSize(for: .wide).width - 58 - back
+        return CGFloat(ordered.count) * (Thumbnail.width + 8) - 8 > room
+    }
+
+    /// Horizontal centre of the thumbnail showing `window`, measured from the
+    /// pane's leading edge, so the large preview can hang under it.
+    private func thumbnailCenter(of window: AttachedWindow) -> CGFloat {
+        let back: CGFloat = store.backTarget == nil ? 0 : 64 + 8
+        let index = CGFloat(ordered.firstIndex { $0.id == window.id } ?? 0)
+        return back + index * (Thumbnail.width + 8) + Thumbnail.width / 2
     }
 
     private func backButton(_ app: NSRunningApplication) -> some View {
@@ -296,9 +353,9 @@ struct WindowsPane: View {
 
     private var editToggle: some View {
         Button {
-            editing.toggle()
+            peek.editing.toggle()
         } label: {
-            if editing {
+            if peek.editing {
                 Text(localized("Done"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white)
@@ -313,7 +370,7 @@ struct WindowsPane: View {
             }
         }
         .buttonStyle(.plain)
-        .help(localized(editing ? "Done" : "Attach windows"))
+        .help(localized(peek.editing ? "Done" : "Attach windows"))
     }
 
     // MARK: - Empty and permission states
@@ -412,29 +469,67 @@ private struct LargePreview: View {
     let window: AttachedWindow
     let image: CGImage?
     let isStale: Bool
+    /// Centre of the thumbnail it belongs to; the preview hangs under it.
+    let anchorX: CGFloat
+
+    /// The box takes the window's own proportions, so a tall window is not
+    /// a narrow column in a wide empty frame.
+    private var aspect: CGFloat {
+        guard let image, image.height > 0 else { return 16 / 10 }
+        return CGFloat(image.width) / CGFloat(image.height)
+    }
+
+    /// Largest box of the window's shape that fits the room below the row.
+    private func fitted(in room: CGSize) -> CGSize {
+        guard room.width > 0, room.height > 0 else { return .zero }
+        if room.width / room.height > aspect {
+            return CGSize(width: room.height * aspect, height: room.height)
+        }
+        return CGSize(width: room.width, height: room.width / aspect)
+    }
 
     var body: some View {
-        PreviewFrame(image: image, dimmed: isStale)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .bottomLeading) {
-                HStack(spacing: 6) {
-                    Text(window.appName)
-                        .font(.system(size: 10.5, weight: .semibold))
-                    if !window.title.isEmpty, window.title != window.appName {
-                        Text(window.title).font(.system(size: 10.5))
-                    }
-                    if isStale {
-                        Text("Can't capture this window now, showing last frame").font(.system(size: 10))
-                    }
-                }
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(Color.black.opacity(0.6)))
-                .padding(8)
+        GeometryReader { geo in
+            let box = fitted(in: CGSize(width: geo.size.width, height: geo.size.height - Self.labelHeight))
+            // Under its thumbnail, held inside the pane at either end, so it
+            // reads as that window's and not as a picture floating mid-panel.
+            let x = min(max(anchorX - box.width / 2, 0), max(geo.size.width - box.width, 0))
+            VStack(alignment: .leading, spacing: 0) {
+                PreviewFrame(image: image, dimmed: isStale)
+                    .frame(width: box.width, height: box.height)
+                // Under the picture rather than over it, where it hid the
+                // bottom of the window it names.
+                label
+                    .frame(width: max(box.width, 160), height: Self.labelHeight, alignment: .leading)
             }
-            .contentShape(Rectangle())
+            .offset(x: min(x, max(geo.size.width - max(box.width, 160), 0)))
+        }
+        // The whole area below the row answers the pointer, not only the
+        // picture: the way down from a thumbnail to the preview should not
+        // count as leaving.
+        .contentShape(Rectangle())
+    }
+
+    private static let labelHeight: CGFloat = 18
+
+    private var label: some View {
+        HStack(spacing: 6) {
+            Text(window.appName)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(.white)
+            if !window.title.isEmpty, window.title != window.appName {
+                Text(window.title)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.secondary)
+            }
+            if isStale {
+                Text("Can't capture this window now, showing last frame")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.tertiary)
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
     }
 }
 
