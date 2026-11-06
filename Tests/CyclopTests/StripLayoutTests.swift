@@ -22,60 +22,130 @@ struct StripLayoutTests {
         #expect(full == area.width - 2 * gap)
     }
 
+    private func widths(_ cols: [StripLayout.Column]) -> [CGFloat] { StripLayout.widths(cols, in: area) }
+
+    /// Rest frames the way the strip computes them: show the focused column.
+    private func rest(_ cols: [StripLayout.Column], focus: Int, from offset: CGFloat = 0, center: Bool = false)
+        -> (offset: CGFloat, frames: [CGRect], visible: Set<Int>) {
+        let w = widths(cols)
+        let o = StripLayout.reveal(focus, widths: w, offset: offset, available: area.width, center: center)
+        return (o, StripLayout.frames(cols, offset: o, in: area), StripLayout.visible(widths: w, offset: o, available: area.width))
+    }
+
     @Test func twoHalvesAreBothInView() {
-        let placement = StripLayout.place(columns([1, 1]), focus: 0, current: 0, in: area)
-        #expect(placement.visible == [0, 1])
-        #expect(placement.frames[0].minX == gap)
-        #expect(placement.frames[1].minX == placement.frames[0].maxX + gap)
-        #expect(placement.frames.allSatisfy { $0.minY == area.minY + gap && $0.height == area.height - 2 * gap })
+        let r = rest(columns([1, 1]), focus: 0)
+        #expect(r.visible == [0, 1])
+        #expect(r.frames[0].minX == gap)
+        #expect(r.frames[1].minX == r.frames[0].maxX + gap)
+        #expect(r.frames.allSatisfy { $0.minY == area.minY + gap && $0.height == area.height - 2 * gap })
     }
 
-    @Test func columnsBeyondTheScreenAreParkedAsSlivers() {
-        let placement = StripLayout.place(columns([1, 1, 1, 1]), focus: 0, current: 0, in: area)
-        #expect(placement.visible == [0, 1])
-        #expect(placement.frames[2].minX == area.maxX - StripLayout.sliver)
-        #expect(placement.frames[3].minX == area.maxX - StripLayout.sliver)
+    @Test func columnsPastTheRightEdgeAreParkedAsSlivers() {
+        let r = rest(columns([1, 1, 1, 1]), focus: 0)
+        #expect(r.visible == [0, 1])
+        #expect(r.frames[2].minX == area.maxX - StripLayout.sliver)
+        #expect(r.frames[3].minX == area.maxX - StripLayout.sliver)
     }
 
-    @Test func movingRightSlidesOneColumnAtATime() {
+    @Test func focusingPastTheRightEdgeMovesTheViewJustEnough() {
         let cols = columns([1, 1, 1, 1])
-        let step1 = StripLayout.place(cols, focus: 2, current: 0, in: area)
-        #expect(step1.first == 1)
-        #expect(step1.visible == [1, 2])
-        // Column 0 is parked at the left edge with a sliver showing.
-        #expect(step1.frames[0].maxX == area.minX + StripLayout.sliver)
-        let step2 = StripLayout.place(cols, focus: 3, current: step1.first, in: area)
-        #expect(step2.visible == [2, 3])
+        let step = rest(cols, focus: 2)
+        #expect(step.visible == [1, 2])
+        // Back to column 1: already in view, nothing moves.
+        #expect(rest(cols, focus: 1, from: step.offset).offset == step.offset)
+        // Column 0: the view goes back to the start.
+        #expect(rest(cols, focus: 0, from: step.offset).offset == 0)
     }
 
-    @Test func movingLeftKeepsTheViewUntilTheFocusLeavesIt() {
-        let cols = columns([1, 1, 1, 1])
-        // View shows 2 and 3; focusing 2 keeps it, focusing 1 jumps to 1.
-        #expect(StripLayout.place(cols, focus: 2, current: 2, in: area).first == 2)
-        #expect(StripLayout.place(cols, focus: 1, current: 2, in: area).visible == [1, 2])
+    /// The twitch fix: nothing is ever asked to show less than macOS allows
+    /// at the left edge, where it would be pushed back.
+    @Test func noWindowGoesFurtherLeftThanMacOSAllows() {
+        let cols = columns([1, 0, 2, 1, 3])
+        let w = widths(cols)
+        let maxOffset = StripLayout.maxOffset(widths: w, available: area.width)
+        for offset in stride(from: CGFloat(0), through: maxOffset, by: 37) {
+            for frame in StripLayout.frames(cols, offset: offset, in: area) {
+                #expect(frame.maxX >= area.minX + StripLayout.leftKeep - 0.5)
+            }
+        }
+    }
+
+    @Test func aColumnLeavingOnTheLeftStopsAtTheLimit() {
+        let r = rest(columns([1, 1, 1, 1]), focus: 3)
+        #expect(r.frames[0].minX == area.minX + StripLayout.leftKeep - r.frames[0].width)
+        // Hidden under the first column in view, which starts at the gap.
+        #expect(r.frames[1].maxX == r.frames[0].maxX)
+        #expect(r.visible == [2, 3])
     }
 
     @Test func noEmptySpaceIsLeftAtTheEndOfTheStrip() {
-        // Halves, then the last column is narrowed to a third: there is room
-        // for the one before as well, so the view slides back to show it.
-        let cols = columns([1, 1, 0])
-        let placement = StripLayout.place(cols, focus: 2, current: 2, in: area)
-        #expect(placement.visible == [1, 2])
+        // Halves, then a third: focusing the end shows as much as fits.
+        let r = rest(columns([1, 1, 0]), focus: 2)
+        #expect(r.frames[2].maxX == area.maxX - gap)
+    }
+
+    @Test func centringPutsTheFocusedColumnInTheMiddle() {
+        let cols = columns([1, 1, 1, 1, 1])
+        let r = rest(cols, focus: 2, center: true)
+        #expect(abs(r.frames[2].midX - area.midX) <= 1)
+        // Its neighbours show on both sides.
+        #expect(r.frames[1].maxX > area.minX + 100 && r.frames[3].minX < area.maxX - 100)
+        // The first column cannot be centred without leaving the strip's start empty.
+        #expect(rest(cols, focus: 0, center: true).offset == 0)
     }
 
     @Test func aFullWidthColumnStandsAlone() {
-        let placement = StripLayout.place(columns([1, 3, 1]), focus: 1, current: 0, in: area)
-        #expect(placement.visible == [1])
-        #expect(placement.frames[1] == CGRect(x: gap, y: area.minY + gap, width: area.width - 2 * gap, height: area.height - 2 * gap))
+        let r = rest(columns([1, 3, 1]), focus: 1)
+        #expect(r.visible == [1])
+        #expect(r.frames[1] == CGRect(x: gap, y: area.minY + gap, width: area.width - 2 * gap, height: area.height - 2 * gap))
     }
 
     @Test func aWindowWiderThanAskedPushesTheNextOneOut() {
         var cols = columns([0, 0, 0])
-        // The second window will not go narrower than 700 pt.
         cols[1].minWidth = 700
-        let placement = StripLayout.place(cols, focus: 0, current: 0, in: area)
-        #expect(placement.frames[1].width == 700)
-        #expect(placement.visible == [0, 1])
+        let r = rest(cols, focus: 0)
+        #expect(r.frames[1].width == 700)
+        #expect(r.visible == [0, 1])
+    }
+
+    @Test func aWidthSetByHandWinsWithinLimits() {
+        var cols = columns([1, 1])
+        cols[0].custom = 900
+        #expect(StripLayout.width(of: cols[0], in: area) == 900)
+        cols[0].custom = 50
+        #expect(StripLayout.width(of: cols[0], in: area) == StripLayout.minCustomWidth)
+        cols[0].custom = 5000
+        #expect(StripLayout.width(of: cols[0], in: area) == area.width - 2 * gap)
+        // The neighbour starts right after it.
+        cols[0].custom = 900
+        let r = rest(cols, focus: 0)
+        #expect(r.frames[1].minX == gap + 900 + gap)
+    }
+
+    @Test func freeScrollStopsAnywhereAndFocusGoesToTheMiddleColumn() {
+        let cols = columns([1, 1, 1, 1])
+        let w = widths(cols)
+        // Stopped a third of the way into column 1.
+        let offset: CGFloat = 250
+        let frames = StripLayout.frames(cols, offset: offset, in: area)
+        #expect(frames[1].minX == gap + w[0] + gap - 250)
+        #expect(StripLayout.visible(widths: w, offset: offset, available: area.width) == [1])
+        #expect(StripLayout.nearestToCenter(widths: w, offset: offset, available: area.width) == 1)
+        // Clamped back inside the ends.
+        #expect(StripLayout.clamp(-40, widths: w, available: area.width) == 0)
+        #expect(StripLayout.clamp(9999, widths: w, available: area.width) == StripLayout.maxOffset(widths: w, available: area.width))
+    }
+
+    @Test func emptyStripPlacesNothing() {
+        #expect(StripLayout.frames([], offset: 0, in: area).isEmpty)
+        #expect(StripLayout.visible(widths: [], offset: 0, available: area.width).isEmpty)
+        #expect(StripLayout.reveal(0, widths: [], offset: 0, available: area.width, center: false) == 0)
+    }
+
+    @Test func pastTheEndsTheStripMovesAtAThird() {
+        #expect(StripLayout.rubberBand(-90, max: 700) == -30)
+        #expect(StripLayout.rubberBand(790, max: 700) == 730)
+        #expect(StripLayout.rubberBand(350, max: 700) == 350)
     }
 
     @Test func widthCyclesThroughEveryPresetAndWraps() {
@@ -86,10 +156,6 @@ struct StripLayoutTests {
         #expect(preset == StripLayout.defaultPreset)
     }
 
-    @Test func emptyStripPlacesNothing() {
-        let placement = StripLayout.place([], focus: 0, current: 0, in: area)
-        #expect(placement.frames.isEmpty && placement.visible.isEmpty)
-    }
 
     @Test func aWheelNotchIsOneStepAndATrackpadNeedsTravel() {
         var stepper = ScrollStepper()
@@ -146,51 +212,4 @@ struct StripLayoutTests {
         #expect(!StripGesture.isOverTitleBar(CGPoint(x: 720, y: 50), of: frames))
     }
 
-    @Test func atAColumnsOffsetTheSwipeFramesMatchTheRestingOnes() {
-        let cols = columns([1, 1, 1, 1])
-        let widths = cols.map { StripLayout.width(of: $0, in: area) }
-        let positions = StripLayout.positions(widths)
-        for first in 0...2 {
-            let resting = StripLayout.place(cols, focus: first, current: first, in: area)
-            let swiping = StripLayout.frames(cols, offset: StripLayout.offset(first: first, positions: positions), in: area)
-            #expect(resting.frames == swiping)
-        }
-    }
-
-    @Test func midSwipeAColumnSlidesInFromTheRight() {
-        let cols = columns([1, 1, 1])
-        let frames = StripLayout.frames(cols, offset: 300, in: area)
-        // Everything moved left by 300; the third column is partly on screen.
-        #expect(frames[0].minX == gap - 300)
-        #expect(frames[2].minX < area.maxX - StripLayout.sliver)
-        #expect(frames[2].minX == area.minX + StripLayout.positions(cols.map { StripLayout.width(of: $0, in: area) })[2] - 300)
-    }
-
-    @Test func pastTheEndsTheStripMovesAtAThird() {
-        #expect(StripLayout.rubberBand(-90, max: 700) == -30)
-        #expect(StripLayout.rubberBand(790, max: 700) == 730)
-        #expect(StripLayout.rubberBand(350, max: 700) == 350)
-    }
-
-    @Test func aSwipeSettlesOnTheNearestColumnAndAShortOneStillMovesOne() {
-        let widths = columns([1, 1, 1, 1]).map { StripLayout.width(of: $0, in: area) }
-        let positions = StripLayout.positions(widths)
-        let one = StripLayout.offset(first: 1, positions: positions)
-        // Most of the way to column 1: settles there.
-        #expect(StripLayout.settle(widths: widths, offset: one - 100, startFirst: 0, travel: -(one - 100), available: area.width) == 1)
-        // A short 50 pt flick forward still moves one.
-        #expect(StripLayout.settle(widths: widths, offset: 50, startFirst: 0, travel: -50, available: area.width) == 1)
-        // A tiny nudge stays put.
-        #expect(StripLayout.settle(widths: widths, offset: 10, startFirst: 0, travel: -10, available: area.width) == 0)
-        // Never past the last place the strip can rest (two halves on screen).
-        #expect(StripLayout.settle(widths: widths, offset: 5000, startFirst: 2, travel: -5000, available: area.width) == 2)
-        // Backwards past the start stays at the start.
-        #expect(StripLayout.settle(widths: widths, offset: -200, startFirst: 0, travel: 200, available: area.width) == 0)
-    }
-
-    @Test func theLastVisibleColumnFollowsTheFirst() {
-        let widths = columns([1, 1, 1, 1]).map { StripLayout.width(of: $0, in: area) }
-        #expect(StripLayout.lastVisible(widths: widths, first: 1, available: area.width) == 2)
-        #expect(StripLayout.lastVisible(widths: widths, first: 3, available: area.width) == 3)
-    }
 }

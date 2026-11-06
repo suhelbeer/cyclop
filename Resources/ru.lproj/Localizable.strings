@@ -164,7 +164,6 @@
 /* Окна: лента */
 "Arrange attached windows side by side in a strip" = "Выстроить закреплённые окна в ленту";
 "Release: put the windows back where they were" = "Отпустить: вернуть окна на прежние места";
-"%@ %@ or swipe sideways with ⌃⌥ or on a title bar · %@ width · drag previews to reorder" = "%@ %@ или смахивание вбок с ⌃⌥ или по заголовку окна · %@ — ширина · перетащите превью, чтобы поменять порядок";
 "Not in strip: %@" = "Не в ленте: %@";
 "Allow Accessibility to move windows" = "Разрешите Универсальный доступ, чтобы двигать окна";
 "No attached window on this desktop can be arranged" = "На этом рабочем столе нет закреплённых окон, которые можно выстроить";
@@ -178,3 +177,5 @@
 "In view" = "На экране";
 "Parked at the edge" = "У края экрана";
 "Allow Accessibility to swipe the strip from anywhere" = "Разрешите Универсальный доступ, чтобы листать ленту откуда угодно";
+"Move: %@ %@, or swipe sideways with ⌃⌥ or on a title bar · drag previews to reorder" = "Двигать: %@ %@ или смахивание вбок с ⌃⌥ или по заголовку · перетащите превью, чтобы поменять порядок";
+"%@ width · %@ centre · drag a window's edge for any width" = "%@ — ширина · %@ — по центру · потяните край окна для любой ширины";

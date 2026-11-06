@@ -10,10 +10,11 @@ private func stripWindowID(_ element: AXUIElement, _ id: UnsafeMutablePointer<CG
 /// The attached windows laid side by side in a strip you scroll along, like
 /// a scrolling window manager, but only for the windows attached to the notch.
 ///
-/// v1 limits, on purpose: the current desktop only (Accessibility cannot reach
-/// windows on others), the built-in display only, and no animation (each move
-/// is a round trip to the other app). It does not defend the layout: if macOS
-/// or another tool moves a window, Arrange again or Release.
+/// Limits, on purpose: the current desktop only (Accessibility cannot reach
+/// windows on others) and the built-in display only. It does not defend the
+/// layout: if macOS or another tool moves a window, Arrange again or Release.
+/// The one change it does pick up is a window's edge dragged by hand, which
+/// becomes that column's width.
 @MainActor
 final class WindowStrip: ObservableObject {
     static let shared = WindowStrip()
@@ -58,6 +59,8 @@ final class WindowStrip: ObservableObject {
                                   default: Shortcut(keyCode: UInt32(kVK_RightArrow), modifiers: Shortcut.control | Shortcut.option))
     let widthKey = Shortcut.stored("strip.shortcut.width",
                                    default: Shortcut(keyCode: UInt32(kVK_ANSI_R), modifiers: Shortcut.control | Shortcut.option))
+    let centerKey = Shortcut.stored("strip.shortcut.center",
+                                    default: Shortcut(keyCode: UInt32(kVK_ANSI_C), modifiers: Shortcut.control | Shortcut.option))
 
     private var windows: [CGWindowID: AttachedWindow] = [:]
     /// Frames from before Arrange, for Release.
@@ -65,7 +68,8 @@ final class WindowStrip: ObservableObject {
     /// What was last asked of each window, so unchanged ones are not moved.
     private var applied: [CGWindowID: CGRect] = [:]
     private var failures: [CGWindowID: Int] = [:]
-    private var first = 0
+    /// Where the view sits along the strip, in points from its start.
+    private var offset: CGFloat = 0
     private var area: CGRect = .zero
     private var hotKeys: [UInt32] = []
     private var scroll = ScrollStepper()
@@ -74,7 +78,6 @@ final class WindowStrip: ObservableObject {
     /// A trackpad swipe in progress: the strip follows the fingers until it
     /// ends, then settles on the nearest column.
     private struct Swipe {
-        let startFirst: Int
         let startOffset: CGFloat
         let horizontal: Bool
         var travel: CGFloat = 0
@@ -87,8 +90,11 @@ final class WindowStrip: ObservableObject {
     /// faster than windows can move, and they are folded together.
     private enum Op {
         case arrange([AttachedWindow]), step(Int), focus(CGWindowID), move(CGWindowID, Int), cycleWidth, release
-        /// End of a swipe: focus, first column, and where the swipe left the windows.
-        case settle(Int, Int, [CGWindowID: CGRect])
+        /// End of a swipe: where the view stopped, and where the windows are.
+        case rest(CGFloat, [CGWindowID: CGRect])
+        case center
+        /// A window's edge was dragged by hand.
+        case resized(CGWindowID)
     }
     private var queue: [Op] = []
     private var draining = false
@@ -114,6 +120,8 @@ final class WindowStrip: ObservableObject {
     func step(_ delta: Int) { if isArranged { enqueue(.step(delta)) } }
     func focus(on id: CGWindowID) { if isArranged { enqueue(.focus(id)) } }
     func cycleWidth() { if isArranged { enqueue(.cycleWidth) } }
+    /// Puts the focused window in the middle, its neighbours showing either side.
+    func center() { if isArranged { enqueue(.center) } }
     /// Puts a window at another place in the strip, from a drag in the previews.
     func move(_ id: CGWindowID, to index: Int) { if isArranged { enqueue(.move(id, index)) } }
 
@@ -143,23 +151,21 @@ final class WindowStrip: ObservableObject {
         if begins, swipe != nil { endSwipe() }
         if swipe == nil {
             guard !event.phase.contains(.ended), !event.phase.contains(.cancelled) else { return }
-            let widths = columns.map { StripLayout.width(of: $0, in: area) }
-            swipe = Swipe(
-                startFirst: first,
-                startOffset: StripLayout.offset(first: first, positions: StripLayout.positions(widths)),
-                horizontal: abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY)
-            )
+            swipe = Swipe(startOffset: offset, horizontal: abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY))
+            // Windows leaving on the left have to slide under their right-hand
+            // neighbours, so stack them that way round before anything moves.
+            mover.restack(columns.compactMap { windows[$0.id] }, focus: nil)
             watchSwipe()
         }
         guard var current = swipe else { return }
         current.travel += current.horizontal ? event.scrollingDeltaX : event.scrollingDeltaY
         current.lastEvent = Date()
-        let widths = columns.map { StripLayout.width(of: $0, in: area) }
-        let offset = StripLayout.rubberBand(
+        let widths = StripLayout.widths(columns, in: area)
+        let shown = StripLayout.rubberBand(
             current.startOffset - current.travel,
             max: StripLayout.maxOffset(widths: widths, available: area.width)
         )
-        let frames = StripLayout.frames(columns, offset: offset, in: area)
+        let frames = StripLayout.frames(columns, offset: shown, in: area)
         var targets: [(AttachedWindow, CGPoint)] = []
         for (column, frame) in zip(columns, frames) {
             current.frames[column.id] = frame
@@ -184,23 +190,12 @@ final class WindowStrip: ObservableObject {
         }
     }
 
+    /// The strip stays where the fingers stopped (pulled back inside its ends
+    /// if it was stretched past one).
     private func endSwipe() {
         guard let done = swipe else { return }
         swipe = nil
-        let widths = columns.map { StripLayout.width(of: $0, in: area) }
-        let offset = StripLayout.offset(first: done.startFirst, positions: StripLayout.positions(widths)) - done.travel
-        let settled = StripLayout.settle(
-            widths: widths, offset: offset, startFirst: done.startFirst, travel: done.travel, available: area.width
-        )
-        // Going back, the column that came in on the left takes focus; going
-        // forward, the one that came in on the right. Otherwise focus stays.
-        var newFocus = focus
-        if settled < done.startFirst {
-            newFocus = settled
-        } else if settled > done.startFirst {
-            newFocus = StripLayout.lastVisible(widths: widths, first: settled, available: area.width)
-        }
-        enqueue(.settle(newFocus, settled, done.frames))
+        enqueue(.rest(done.startOffset - done.travel, done.frames))
     }
 
     /// Windows that disappeared leave the strip; the rest close ranks.
@@ -253,7 +248,9 @@ final class WindowStrip: ObservableObject {
                 case .move(let id, let index): await performMove(id, to: index)
                 case .cycleWidth: await performCycleWidth()
                 case .release: await performRelease()
-                case .settle(let newFocus, let newFirst, let frames): await performSettle(newFocus, newFirst, frames)
+                case .rest(let stop, let frames): await performRest(stop, frames)
+                case .center: await performCenter()
+                case .resized(let id): await performResized(id)
                 }
             }
             draining = false
@@ -311,11 +308,13 @@ final class WindowStrip: ObservableObject {
         } else {
             focus = 0
         }
-        if !wasArranged { first = 0 }
+        if !wasArranged { offset = 0 }
         note = nil
         registerHotKeys()
         await layout()
         raiseFocused()
+        StripResizeWatcher.shared.onResize = { [weak self] id in self?.enqueue(.resized(id)) }
+        StripResizeWatcher.shared.watch(columns.compactMap { windows[$0.id] })
     }
 
     private func performStep(_ delta: Int) async {
@@ -328,14 +327,38 @@ final class WindowStrip: ObservableObject {
         if moved || delta == 0 { raiseFocused() }
     }
 
-    private func performSettle(_ newFocus: Int, _ newFirst: Int, _ frames: [CGWindowID: CGRect]) async {
+    /// The window nearest the middle takes focus; the view does not move to
+    /// show it whole, it stays where the swipe left it.
+    private func performRest(_ stop: CGFloat, _ frames: [CGWindowID: CGRect]) async {
         guard isArranged else { return }
-        focus = min(max(newFocus, 0), columns.count - 1)
-        first = newFirst
+        let widths = StripLayout.widths(columns, in: area)
+        offset = StripLayout.clamp(stop, widths: widths, available: area.width)
+        focus = StripLayout.nearestToCenter(widths: widths, offset: offset, available: area.width)
         // The swipe moved the windows; slide on from where it left them.
         applied.merge(frames) { $1 }
-        await layout()
+        await layout(reveal: false)
         raiseFocused()
+    }
+
+    private func performCenter() async {
+        guard isArranged else { return }
+        await followRealFocus()
+        await layout(center: true)
+        raiseFocused()
+    }
+
+    /// A window whose edge was dragged keeps the width it was given, and its
+    /// neighbours move to fit. Its height goes back to the strip's.
+    private func performResized(_ id: CGWindowID) async {
+        guard let index = index(of: id), let window = windows[id], let asked = applied[id] else { return }
+        let actual = await Task.detached { StripAX.frame(of: window) }.value
+        guard let actual, abs(actual.width - asked.width) > 3 else { return }
+        columns[index].custom = actual.width
+        columns[index].minWidth = 0
+        focus = index
+        // Pretend it was asked for, so only a different height or place moves it.
+        applied[id] = actual
+        await layout()
     }
 
     private func performFocus(_ id: CGWindowID) async {
@@ -361,7 +384,12 @@ final class WindowStrip: ObservableObject {
     private func performCycleWidth() async {
         guard isArranged else { return }
         await followRealFocus()
-        columns[focus].preset = StripLayout.nextPreset(after: columns[focus].preset)
+        // From a width set by hand, back to the preset it came from.
+        if columns[focus].custom != nil {
+            columns[focus].custom = nil
+        } else {
+            columns[focus].preset = StripLayout.nextPreset(after: columns[focus].preset)
+        }
         // A window that refused a narrow width may manage a wider one; let it try.
         columns[focus].minWidth = 0
         await layout()
@@ -382,28 +410,38 @@ final class WindowStrip: ObservableObject {
     /// Places every column, then reads back what the windows actually did.
     /// A window that would not go as narrow as asked keeps its real width and
     /// the strip is laid out again around it.
-    private func layout() async {
+    ///
+    /// Windows that only move slide there; windows that change size are set at
+    /// once (a resize makes the app redraw, which cannot be animated smoothly).
+    /// With `reveal` the view moves to show the focused column (in the middle
+    /// with `center`); without, it stays where it is.
+    private func layout(reveal: Bool = true, center: Bool = false) async {
         for _ in 0..<3 {
             guard isArranged else { return }
-            let placement = StripLayout.place(columns, focus: focus, current: first, in: area)
-            first = placement.first
-            inView = Set(placement.visible.map { columns[$0].id })
-            var moves: [(AttachedWindow, CGRect)] = []
-            for (column, frame) in zip(columns, placement.frames) where applied[column.id] != frame {
+            let widths = StripLayout.widths(columns, in: area)
+            offset = reveal
+                ? StripLayout.reveal(focus, widths: widths, offset: offset, available: area.width, center: center)
+                : StripLayout.clamp(offset, widths: widths, available: area.width)
+            let frames = StripLayout.frames(columns, offset: offset, in: area)
+            let shown = StripLayout.visible(widths: widths, offset: offset, available: area.width)
+            inView = Set(shown.map { columns[$0].id })
+            var resizes: [(AttachedWindow, CGRect)] = []
+            var slides: [(AttachedWindow, CGRect)] = []
+            for (column, frame) in zip(columns, frames) where applied[column.id] != frame {
                 guard let window = windows[column.id] else { continue }
-                moves.append((window, frame))
+                if applied[column.id]?.size == frame.size {
+                    slides.append((window, frame))
+                } else {
+                    resizes.append((window, frame))
+                }
             }
-            guard !moves.isEmpty else { return }
-            // Only positions changing: slide. Sizes changing: set frames at
-            // once and read back what the windows did.
-            if moves.allSatisfy({ applied[$0.0.id]?.size == $0.1.size }) {
-                mover.slide(moves.map { ($0.0, $0.1.origin) })
-                for (window, frame) in moves { applied[window.id] = frame }
-                return
+            if !slides.isEmpty {
+                mover.slide(slides.map { ($0.0, $0.1.origin) })
+                for (window, frame) in slides { applied[window.id] = frame }
             }
-            mover.stop()
+            guard !resizes.isEmpty else { return }
             let results = await Task.detached(priority: .userInitiated) {
-                moves.map { window, frame in (window.id, frame, StripAX.setFrame(frame, of: window)) }
+                resizes.map { window, frame in (window.id, frame, StripAX.setFrame(frame, of: window)) }
             }.value
 
             var relayout = false
@@ -460,33 +498,23 @@ final class WindowStrip: ObservableObject {
         if let id, let index = index(of: id) { focus = index }
     }
 
-    /// Makes the focused column the key window. Raised, then its app made
-    /// active, then raised once more after activation has settled: activating
-    /// can bring the app's previous front window back on top.
-    ///
-    /// The other columns in view are raised first. macOS will not let a window
-    /// go further off the left edge than leaving about 260 pt on screen, so a
-    /// window parked on the left sits under the first column, and only the
-    /// columns being in front of it keeps it down to a sliver.
+    /// Makes the focused column the key window, after stacking the others
+    /// left to right so a window parked at the left edge stays under its
+    /// neighbour. Raised, then its app made active, then raised once more after
+    /// activation has settled: activating can bring the app's previous front
+    /// window back on top.
     private func raiseFocused() {
         guard let id = focusedID, let window = windows[id] else { return }
-        let others = first > 0
-            ? columns.filter { $0.id != id && inView.contains($0.id) }.compactMap { windows[$0.id] }
-            : []
         lastOwnFocus = Date()
         raiseGeneration += 1
         let generation = raiseGeneration
+        mover.restack(columns.compactMap { windows[$0.id] }, focus: window)
         Task { @MainActor in
-            await Task.detached {
-                for other in others { StripAX.raise(other, focus: false) }
-                StripAX.raise(window)
-            }.value
-            if let app = NSRunningApplication(processIdentifier: window.pid), !app.isActive {
-                WindowFocus.activate(app)
-                try? await Task.sleep(for: .milliseconds(150))
-                guard generation == raiseGeneration else { return }
-                await Task.detached { StripAX.raise(window) }.value
-            }
+            guard let app = NSRunningApplication(processIdentifier: window.pid), !app.isActive else { return }
+            WindowFocus.activate(app)
+            try? await Task.sleep(for: .milliseconds(150))
+            guard generation == raiseGeneration else { return }
+            mover.restack([], focus: window)
         }
     }
 
@@ -498,6 +526,7 @@ final class WindowStrip: ObservableObject {
             (previousKey, { [weak self] in self?.step(-1) }),
             (nextKey, { [weak self] in self?.step(1) }),
             (widthKey, { [weak self] in self?.cycleWidth() }),
+            (centerKey, { [weak self] in self?.center() }),
         ]
         var refused: [String] = []
         for (shortcut, action) in bindings {
@@ -530,6 +559,7 @@ final class WindowStrip: ObservableObject {
         for id in hotKeys { HotKeys.shared.unregister(id) }
         hotKeys = []
         StripScrollTap.shared.stop()
+        StripResizeWatcher.shared.stop()
         mover.forget()
         swipe = nil
         columns = []
@@ -539,7 +569,7 @@ final class WindowStrip: ObservableObject {
         failures = [:]
         inView = []
         focus = 0
-        first = 0
+        offset = 0
         if !keepLeftOut { leftOut = [] }
         if !keepNote { note = nil }
     }
@@ -591,13 +621,18 @@ enum StripAX {
 
     /// Brings the window to the front of its app; with `focus`, also makes it
     /// the app's focused window.
-    static func raise(_ window: AttachedWindow, focus: Bool = true) {
-        guard let element = element(for: window) else { return }
+    static func frame(of window: AttachedWindow) -> CGRect? {
+        element(for: window).flatMap(frame(of:))
+    }
+
+    /// Brings the window to the front of its app; with `focus`, also makes it
+    /// the app's focused window.
+    static func raise(_ element: AXUIElement, pid: pid_t, focus: Bool) {
         guard focus else {
             AXUIElementPerformAction(element, kAXRaiseAction as CFString)
             return
         }
-        let app = application(window.pid)
+        let app = application(pid)
         AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, element)
         AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
@@ -649,5 +684,57 @@ enum StripAX {
               let sizeValue = value, AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
         else { return nil }
         return CGRect(origin: position, size: size)
+    }
+}
+
+/// Notices a strip window's edge being dragged by hand, through Accessibility
+/// notifications from the window's app, and reports it once the drag has
+/// settled. The strip's own resizes are reported too; it tells them apart.
+@MainActor
+final class StripResizeWatcher {
+    static let shared = StripResizeWatcher()
+
+    var onResize: ((CGWindowID) -> Void)?
+    private var observers: [AXObserver] = []
+    private var pending: [CGWindowID: Task<Void, Never>] = [:]
+
+    func watch(_ windows: [AttachedWindow]) {
+        stop()
+        for (pid, group) in Dictionary(grouping: windows, by: \.pid) {
+            var created: AXObserver?
+            let status = AXObserverCreate(pid, { _, element, _, _ in
+                var id: CGWindowID = 0
+                guard stripWindowID(element, &id) == .success else { return }
+                // The observer's source is on the main run loop.
+                MainActor.assumeIsolated { StripResizeWatcher.shared.changed(id) }
+            }, &created)
+            guard status == .success, let observer = created else { continue }
+            for window in group {
+                guard let element = StripAX.element(for: window) else { continue }
+                AXObserverAddNotification(observer, element, kAXResizedNotification as CFString, nil)
+            }
+            CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+            observers.append(observer)
+        }
+    }
+
+    func stop() {
+        for observer in observers {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        }
+        observers = []
+        pending.values.forEach { $0.cancel() }
+        pending = [:]
+    }
+
+    /// A drag sends a resize for every step; report only once it pauses.
+    private func changed(_ id: CGWindowID) {
+        pending[id]?.cancel()
+        pending[id] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self else { return }
+            pending[id] = nil
+            onResize?(id)
+        }
     }
 }
