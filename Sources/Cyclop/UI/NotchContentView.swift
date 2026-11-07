@@ -107,7 +107,10 @@ struct NotchContentView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    // Cut at the end: a caption starts with the window's
+                    // name, then a message read from its start. Cutting the
+                    // middle took both apart.
+                    .truncationMode(.tail)
                     // Moving along the dots swaps the line outright: a
                     // crossfade left two names drawn over each other.
                     .id(caption)
