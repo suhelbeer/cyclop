@@ -347,6 +347,13 @@ final class WindowStore: ObservableObject {
                 isOnScreen: window.isOnScreen
             ))
         }
+        // A closed full-screen window can leave a record behind that never
+        // draws: left in, it sits in the tab "loading" forever and a click
+        // goes nowhere. Checked for attached windows only, which keeps the
+        // Accessibility reads to the few windows shown.
+        WindowFocus.forget(allBut: Set(found.keys))
+        list.removeAll { !$0.isOnScreen && isAttached($0) && WindowFocus.isGhost($0) }
+        for id in Set(found.keys).subtracting(list.map(\.id)) { found[id] = nil }
         scWindows = found
         // Stable order: by app, then left to right, top to bottom, so a 2×2
         // grid on screen reads the same way in the tab.

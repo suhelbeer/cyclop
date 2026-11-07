@@ -4,9 +4,6 @@ import ApplicationServices
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
-@_silgen_name("_AXUIElementCreateWithRemoteToken")
-private func _AXUIElementCreateWithRemoteToken(_ token: CFData) -> Unmanaged<AXUIElement>?
-
 /// One Claude window as one read found it.
 struct ClaudeWindowReading: Equatable, Sendable {
     let id: CGWindowID
@@ -52,6 +49,9 @@ final class ClaudeAXReader: @unchecked Sendable {
     /// Windows where the button search finds nothing the rules know (the
     /// main window's search came back empty in the probe): walked instead.
     private var walked: Set<CGWindowID> = []
+    /// Records the window server kept for windows that were closed (see
+    /// `WindowLiveness`): never read, never shown.
+    private var ghosts: Set<CGWindowID> = []
     private var lastSearch = Date.distantPast
     private var busy = false
 
@@ -74,6 +74,7 @@ final class ClaudeAXReader: @unchecked Sendable {
             webAreas.removeAll()
             real.removeAll()
             walked.removeAll()
+            ghosts.removeAll()
             lastSearch = .distantPast
         }
     }
@@ -89,19 +90,28 @@ final class ClaudeAXReader: @unchecked Sendable {
             webAreas.removeAll()
             real.removeAll()
             walked.removeAll()
+            ghosts.removeAll()
             lastSearch = .distantPast
         }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, Self.timeout)
 
-        let windows = standardWindows(pid: pid)
-        locate(windows.map(\.id), app: app, pid: pid)
+        let all = standardWindows(pid: pid)
+        locate(all.map(\.id), app: app, pid: pid)
+        let windows = all.filter { !ghosts.contains($0.id) }
 
         var readings: [ClaudeWindowReading] = []
         for window in windows {
             // Not found yet (another desktop, before the next search): left
             // out rather than shown as a nameless grey dot.
             guard let element = elements[window.id] else { continue }
+            // A window that has closed since it was found: let the next
+            // search decide whether a ghost of it is all that is left.
+            if WindowLiveness.verdict(of: element) == .ghost {
+                elements[window.id] = nil
+                webAreas[window.id] = nil
+                continue
+            }
             let title = string(element, kAXTitleAttribute) ?? ""
             guard let labels = labels(in: window.id, element: element) else {
                 if real.contains(window.id) {
@@ -142,8 +152,10 @@ final class ClaudeAXReader: @unchecked Sendable {
     /// Finds an Accessibility element for every window id. The app's own
     /// window list only has the windows on the current desktop; the rest are
     /// found by trying element ids, as `WindowFocus` does, at most every 15 s.
+    /// Ids that turn out to be ghosts are dropped for good.
     private func locate(_ ids: [CGWindowID], app: AXUIElement, pid: pid_t) {
-        let wanted = Set(ids)
+        ghosts.formIntersection(ids)
+        let wanted = Set(ids).subtracting(ghosts)
         elements = elements.filter { wanted.contains($0.key) }
         webAreas = webAreas.filter { wanted.contains($0.key) }
         real.formIntersection(wanted)
@@ -155,24 +167,12 @@ final class ClaudeAXReader: @unchecked Sendable {
         let missing = wanted.subtracting(elements.keys)
         guard !missing.isEmpty, Date().timeIntervalSince(lastSearch) > 15 else { return }
         lastSearch = Date()
-        var token = Data(count: 20)
-        token.withUnsafeMutableBytes { bytes in
-            bytes.storeBytes(of: Int32(pid), toByteOffset: 0, as: Int32.self)
-            bytes.storeBytes(of: Int32(0x636f_636f), toByteOffset: 8, as: Int32.self)
-        }
-        var left = missing
-        for elementID: UInt64 in 0..<1000 where !left.isEmpty {
-            token.withUnsafeMutableBytes { $0.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self) }
-            guard let element = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue() else { continue }
-            AXUIElementSetMessagingTimeout(element, 0.1)
-            var id: CGWindowID = 0
-            let result = _AXUIElementGetWindow(element, &id)
-            if result == .cannotComplete { return }
-            guard result == .success, left.contains(id) else { continue }
+        let found = WindowLiveness.search(pid: pid, for: missing)
+        for (id, element) in found.windows {
             AXUIElementSetMessagingTimeout(element, Self.timeout)
             elements[id] = element
-            left.remove(id)
         }
+        ghosts.formUnion(found.ghosts)
     }
 
     /// The labels of the controls on the window's page, or nil when there is

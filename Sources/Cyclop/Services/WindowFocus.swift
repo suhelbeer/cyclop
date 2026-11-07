@@ -8,13 +8,6 @@ import ApplicationServices
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
-/// Builds an Accessibility element from its raw token. Private, used by AltTab
-/// for the same reason as here: an app's window list in Accessibility only has
-/// the windows on the desktop on screen, so this is the only way to reach a
-/// window on another desktop.
-@_silgen_name("_AXUIElementCreateWithRemoteToken")
-private func _AXUIElementCreateWithRemoteToken(_ token: CFData) -> Unmanaged<AXUIElement>?
-
 /// Switching to a specific window's own desktop, and making it the key window.
 ///
 /// Measured on macOS 27 from a full-screen Safari desktop: this call alone
@@ -221,26 +214,65 @@ enum WindowFocus {
         return element
     }
 
-    /// Tries the app's first element ids until one is this window. A token is
-    /// the pid, a zero, the tag "coco", then the element id; windows sit in the
-    /// first few dozen ids (Claude's at 42–52), and 1000 tries take ~20 ms.
+    /// The window's element on another desktop, by trying element ids.
     private static func searchWindow(_ window: AttachedWindow) -> AXUIElement? {
-        var token = Data(count: 20)
-        token.withUnsafeMutableBytes { bytes in
-            bytes.storeBytes(of: Int32(window.pid), toByteOffset: 0, as: Int32.self)
-            bytes.storeBytes(of: Int32(0x636f_636f), toByteOffset: 8, as: Int32.self)
+        WindowLiveness.search(pid: window.pid, for: [window.id]).windows[window.id]
+    }
+
+    // MARK: - Ghosts
+
+    /// Windows found to be ghosts: a record the window server kept after the
+    /// window closed (see `WindowLiveness`). A closed window does not come
+    /// back, so the verdict stands until the record is gone.
+    private static var ghosts: Set<CGWindowID> = []
+    /// When each window was last searched for without an answer, so an app
+    /// that never answers is not searched on every list refresh.
+    private static var lastSearch: [CGWindowID: Date] = [:]
+    private static let searchInterval: TimeInterval = 15
+
+    /// Whether the window is a leftover of a closed window rather than a
+    /// window. Only ever true for a window that is not on screen, and only
+    /// when Accessibility says so: when it cannot tell, the window is kept.
+    /// Reads only.
+    static func isGhost(_ window: AttachedWindow) -> Bool {
+        guard !window.isOnScreen, hasAccess else { return false }
+        if ghosts.contains(window.id) { return true }
+        if let element = found[window.id] {
+            switch WindowLiveness.verdict(of: element) {
+            case .real, .unknown: return false
+            case .ghost: found[window.id] = nil
+            }
+        } else if inAppList(window) {
+            return false
         }
-        for elementID: UInt64 in 0..<1000 {
-            token.withUnsafeMutableBytes { $0.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self) }
-            guard let element = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue()
-            else { continue }
-            // A hung app would make each try wait for the default 6 s.
-            AXUIElementSetMessagingTimeout(element, 0.1)
+        if let last = lastSearch[window.id], Date().timeIntervalSince(last) < searchInterval { return false }
+        lastSearch[window.id] = Date()
+        let result = WindowLiveness.search(pid: window.pid, for: [window.id])
+        if let element = result.windows[window.id] {
+            found[window.id] = element
+            lastSearch[window.id] = nil
+            return false
+        }
+        guard result.ghosts.contains(window.id) else { return false }
+        ghosts.insert(window.id)
+        return true
+    }
+
+    /// Drops what is known about windows that are gone from the window list.
+    static func forget(allBut live: Set<CGWindowID>) {
+        ghosts.formIntersection(live)
+        lastSearch = lastSearch.filter { live.contains($0.key) }
+        found = found.filter { live.contains($0.key) }
+    }
+
+    private static func inAppList(_ window: AttachedWindow) -> Bool {
+        let app = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success else { return false }
+        return (value as? [AXUIElement] ?? []).contains { element in
             var id: CGWindowID = 0
-            let result = _AXUIElementGetWindow(element, &id)
-            if result == .success, id == window.id { return element }
-            if result == .cannotComplete { return nil }
+            return _AXUIElementGetWindow(element, &id) == .success && id == window.id
         }
-        return nil
     }
 }
