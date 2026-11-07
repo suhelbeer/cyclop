@@ -271,7 +271,10 @@ final class ClaudeAXReader: @unchecked Sendable {
         return labels
     }
 
-    /// Every page in the window. The main window has two.
+    /// Every page in the window. The main window has two at different
+    /// depths: the app's own shell (empty) and, a level further down, the
+    /// claude.ai page inside it. So the whole top of the tree is searched,
+    /// not just the first level that has a page.
     private func pages(for id: CGWindowID, window: AXUIElement) -> [AXUIElement]? {
         if let cached = webAreas[id], let first = cached.first, string(first, kAXRoleAttribute) == "AXWebArea" { return cached }
         var found: [AXUIElement] = []
@@ -281,15 +284,10 @@ final class ClaudeAXReader: @unchecked Sendable {
             for element in level {
                 for child in (value(element, kAXChildrenAttribute) as? [AXUIElement]) ?? [] {
                     AXUIElementSetMessagingTimeout(child, Self.timeout)
-                    if string(child, kAXRoleAttribute) == "AXWebArea" {
-                        found.append(child)
-                    } else {
-                        next.append(child)
-                    }
+                    if string(child, kAXRoleAttribute) == "AXWebArea" { found.append(child) }
+                    next.append(child)
                 }
             }
-            // Pages sit at the same depth; once some are found, stop.
-            if !found.isEmpty { break }
             level = Array(next.prefix(200))
         }
         guard !found.isEmpty else { return nil }

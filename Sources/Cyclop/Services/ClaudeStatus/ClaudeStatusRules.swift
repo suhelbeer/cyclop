@@ -13,7 +13,8 @@ import Foundation
 /// The defaults are what Claude 4.23118 shows (read 2026-11-07, see
 /// `claude-ax-findings-2026-11-07.md`): thread cards read
 /// "<title> — Working" or "<title> — Needs attention", the open thread's
-/// composer swaps "Send" for "Stop", a project window's toolbar has
+/// composer swaps "Send" for "Stop", a plain chat has "Send message", a
+/// project window's toolbar has
 /// "Threads 6 threads waiting on you", and the main window "Tasks, 2 need
 /// input".
 struct ClaudeStatusRules: Codable, Equatable, Sendable {
@@ -26,9 +27,9 @@ struct ClaudeStatusRules: Codable, Equatable, Sendable {
     var layout: [String]
 
     static let defaults = ClaudeStatusRules(
-        working: ["Stop", "* — Working", "* — Working — *", "Claude is working"],
+        working: ["Stop", "Stop response", "Stop generating", "* — Working", "* — Working — *", "Claude is working"],
         waitingCount: [#"^Threads\s+(\d+)\s+threads?\s+waiting on you"#, #"^Tasks,\s*(\d+)\s+needs?\s+input"#],
-        layout: ["Threads*", "Tasks*", "Send", "Send *", "Stop"]
+        layout: ["Threads*", "Tasks*", "Send", "Send message", "Stop", "Claude finished the response"]
     )
 
     init(working: [String], waitingCount: [String], layout: [String]) {

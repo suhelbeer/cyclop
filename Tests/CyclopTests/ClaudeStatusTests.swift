@@ -46,6 +46,20 @@ struct ClaudeStatusRulesTests {
         #expect(reading.waiting == nil)
     }
 
+    /// The main window as a plain chat: no thread cards, no counts.
+    @Test func plainChatWindow() {
+        let quiet = rules.classify(["Exit incognito", "Retry", "Edit", "Copy", "Send message", "Dictate"]).reading
+        #expect(quiet.recognised)
+        #expect(!quiet.working)
+        #expect(quiet.waiting == nil)
+        #expect(rules.classify(["Copy", "Stop response"]).reading.working)
+    }
+
+    /// "Send feedback" is on every page, Claude's or not.
+    @Test func sendFeedbackProvesNothing() {
+        #expect(!rules.classify(["Send feedback"]).reading.recognised)
+    }
+
     @Test func foreignPageIsUnrecognised() {
         let (reading, matched) = rules.classify(["OK", "Cancel", "Help"])
         #expect(reading.readable)
