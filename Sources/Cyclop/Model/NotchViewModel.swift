@@ -150,6 +150,15 @@ final class NotchViewModel: ObservableObject {
 
     func suspendAll() { tools.forEach { $0.suspend() } }
 
+    /// The tool whose live activity the folded notch shows: the first
+    /// switched-on tool that has one.
+    var activityTool: (any NotchTool)? { visibleTools.first { $0.activity != nil } }
+
+    /// Merged "a tool's live activity may have changed" signal.
+    var activityChanges: AnyPublisher<Void, Never> {
+        Publishers.MergeMany(tools.map(\.activityChanges)).eraseToAnyPublisher()
+    }
+
     /// Merged "a tool's body size may have changed" signal.
     var bodySizeChanges: AnyPublisher<Void, Never> {
         Publishers.MergeMany(tools.map(\.bodySizeChanges)).eraseToAnyPublisher()

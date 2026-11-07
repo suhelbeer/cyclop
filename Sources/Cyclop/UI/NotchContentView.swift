@@ -73,6 +73,11 @@ struct NotchContentView: View {
             }
             .frame(width: size.width, height: size.height, alignment: .top)
             .clipped()
+
+            if !isOpen, let tool = vm.activityTool, let activity = panel.activity {
+                activityLayer(tool, activity)
+                    .transition(.opacity)
+            }
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         .offset(x: panel.bodyOffset)
@@ -80,6 +85,36 @@ struct NotchContentView: View {
         .animation(Theme.openAnimation, value: isOpen)
         .animation(Theme.openAnimation, value: panel.showsBody)
         .animation(Theme.openAnimation, value: vm.tab)
+        .animation(Theme.openAnimation, value: panel.activity)
+    }
+
+    // MARK: - Live activity
+    //
+    // Folded, a tool may show something beside the camera: Claude's status
+    // dots. The wing sits right of the notch, the line under both. The panel
+    // opening covers it with the icon row, so it is drawn only folded.
+
+    private func activityLayer(_ tool: any NotchTool, _ activity: NotchActivity) -> some View {
+        let notch = panel.geometry.notchSize
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: notch.width)
+                tool.activityWing()
+                    .frame(width: activity.wingWidth, height: notch.height)
+            }
+            if let caption = activity.caption {
+                Text(caption)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 12)
+                    .frame(width: notch.width + activity.wingWidth, height: NotchGeometry.activityCaptionHeight, alignment: .top)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .top)
     }
 
     // MARK: - Caption
