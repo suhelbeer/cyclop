@@ -79,7 +79,8 @@ struct ClaudeActivityTrackerTests {
 
     @Test func firstReadingShowsAtOnce() {
         var tracker = ClaudeActivityTracker()
-        #expect(tracker.update(reading(working: true), focused: false, now: at(0)))
+        let changed = tracker.update(reading(working: true), focused: false, now: at(0))
+        #expect(changed)
         #expect(tracker.shown == .working)
     }
 
