@@ -4,6 +4,7 @@
 /* Вкладки */
 "Music" = "Музыка";
 "Shelf" = "Полка";
+"Recent" = "Недавние";
 "Clipboard" = "Буфер";
 "Snippets" = "Заготовки";
 "Calendar" = "Календарь";
@@ -52,6 +53,9 @@
 "Open" = "Открыть";
 "Show in Finder" = "Показать в Finder";
 "Remove from Shelf" = "Убрать с полки";
+
+/* Недавние */
+"Nothing recent yet" = "Пока ничего недавнего";
 
 /* Музыка */
 "No artwork" = "Обложки нет";
