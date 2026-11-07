@@ -73,6 +73,7 @@ final class ClaudeStatusMonitor: ObservableObject {
     private let reader = ClaudeAXReader()
     private var rules = ClaudeStatusRules.defaults.compiled()
     private var trackers: [CGWindowID: ClaudeActivityTracker] = [:]
+    private var titles: [CGWindowID: String] = [:]
     private var pid: pid_t?
     /// The Claude process whose Accessibility switch this monitor turned on,
     /// so stopping only ever undoes its own change.
@@ -200,6 +201,7 @@ final class ClaudeStatusMonitor: ObservableObject {
         scheduled = nil
         scheduledAt = nil
         trackers.removeAll()
+        titles.removeAll()
         windows = []
         banner = nil
         reader.forget()
@@ -316,13 +318,16 @@ final class ClaudeStatusMonitor: ObservableObject {
             if tracker.shown == .needsInput, before != .needsInput, seenBefore, !focused {
                 waiting = window.id
             }
+            // Claude blanks a title now and then; keep the name it had.
+            if !window.title.isEmpty { titles[window.id] = window.title }
             next.append(ClaudeWindowStatus(
-                id: window.id, title: window.title, frame: window.frame,
+                id: window.id, title: titles[window.id] ?? window.title, frame: window.frame,
                 activity: tracker.shown, matched: window.matched, waiting: tracker.waiting
             ))
         }
         let present = Set(next.map(\.id))
         trackers = trackers.filter { present.contains($0.key) }
+        titles = titles.filter { present.contains($0.key) }
         next.sort { a, b in
             let order = a.name.localizedStandardCompare(b.name)
             return order == .orderedSame ? a.id < b.id : order == .orderedAscending

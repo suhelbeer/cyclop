@@ -13,7 +13,7 @@ struct ClaudeDots: View {
     /// notch's own hover target reaches past its edge, so resting on the
     /// dot nearest the camera never opens the panel.
     static let inner: CGFloat = 12
-    static let cell: CGFloat = 14
+    static let cell: CGFloat = 16
     /// Black before the first dot, at the outer end of the wing.
     static let outer: CGFloat = 8
 
@@ -53,7 +53,9 @@ struct ClaudeDot: View {
     let activity: ClaudeActivity
     var large = false
 
-    private var size: CGFloat { large ? 8 : 6 }
+    /// Big and bright enough to read at a glance against a black menu bar:
+    /// 6 pt grey rings were measured to vanish there.
+    private var size: CGFloat { large ? 10 : 8 }
 
     var body: some View {
         Group {
@@ -65,9 +67,9 @@ struct ClaudeDot: View {
             case .done:
                 Circle().fill(Color.green)
             case .idle:
-                Circle().strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
+                Circle().strokeBorder(Color.white.opacity(0.6), lineWidth: 1.5)
             case .unknown:
-                Circle().fill(Color.white.opacity(0.2))
+                Circle().fill(Color.white.opacity(0.35))
             }
         }
         .frame(width: size, height: size)
@@ -115,7 +117,7 @@ private struct PulsingDot: NSViewRepresentable {
             guard window != nil else { return }
             let pulse = CABasicAnimation(keyPath: "opacity")
             pulse.fromValue = 1
-            pulse.toValue = 0.45
+            pulse.toValue = 0.55
             pulse.duration = 1.1
             pulse.autoreverses = true
             pulse.repeatCount = .infinity
