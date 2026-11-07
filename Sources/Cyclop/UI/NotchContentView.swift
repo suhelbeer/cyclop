@@ -115,13 +115,45 @@ struct NotchContentView: View {
                     // crossfade left two names drawn over each other.
                     .id(caption)
                     .transaction { $0.animation = nil }
-                    .padding(.horizontal, 12)
-                    .frame(width: notch.width + activity.wingWidth, height: NotchGeometry.activityCaptionHeight, alignment: .top)
+                    .padding(.horizontal, Self.captionPadding)
+                    .frame(width: captionWidth(caption, activity), height: NotchGeometry.activityCaptionHeight, alignment: .top)
+                    // Wider than the notch, the line gets a pill of its own
+                    // under it. Only the line grows: the strip beside the
+                    // camera stays put, so no menu bar item is covered.
+                    .background(alignment: .top) {
+                        if captionWidth(caption, activity) > notch.width + activity.wingWidth {
+                            RoundedRectangle(cornerRadius: Theme.collapsedBottomRadius, style: .continuous)
+                                .fill(Color.black)
+                                .padding(.top, -Theme.collapsedBottomRadius)
+                        }
+                    }
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
         }
         .frame(width: size.width, height: size.height, alignment: .top)
+    }
+
+    static let captionPadding: CGFloat = 12
+
+    /// As wide as the text needs, never narrower than the notch and its
+    /// wing, never wider than twice the notch plus the wing.
+    private func captionWidth(_ caption: String, _ activity: NotchActivity) -> CGFloat {
+        Self.captionWidth(
+            textWidth: Self.captionTextWidth(caption),
+            notchWidth: panel.geometry.notchSize.width,
+            wingWidth: activity.wingWidth
+        )
+    }
+
+    static func captionWidth(textWidth: CGFloat, notchWidth: CGFloat, wingWidth: CGFloat) -> CGFloat {
+        let base = notchWidth + wingWidth
+        return min(max(ceil(textWidth) + 2 * captionPadding, base), 2 * notchWidth + wingWidth)
+    }
+
+    static func captionTextWidth(_ caption: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        return (caption as NSString).size(withAttributes: [.font: font]).width
     }
 
     // MARK: - Caption
