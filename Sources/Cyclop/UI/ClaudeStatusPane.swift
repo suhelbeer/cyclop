@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - Dots beside the camera
@@ -49,7 +50,6 @@ struct ClaudeDots: View {
 struct ClaudeDot: View {
     let activity: ClaudeActivity
     var large = false
-    @State private var dim = false
 
     private var size: CGFloat { large ? 8 : 6 }
 
@@ -57,10 +57,7 @@ struct ClaudeDot: View {
         Group {
             switch activity {
             case .working:
-                Circle().fill(Color.white)
-                    .opacity(dim ? 0.3 : 1)
-                    .onAppear { dim = true }
-                    .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: dim)
+                PulsingDot()
             case .needsInput:
                 Circle().fill(Color.orange)
             case .done:
@@ -72,9 +69,59 @@ struct ClaudeDot: View {
             }
         }
         .frame(width: size, height: size)
-        // A fresh view per state, so the pulse starts over and stops cleanly.
-        .id(activity)
         .animation(.easeOut(duration: 0.12), value: large)
+    }
+}
+
+/// The working dot's slow pulse, run by Core Animation.
+///
+/// A SwiftUI `repeatForever` animation re-renders the panel every frame for
+/// as long as it runs, and Claude can be working for hours: measured at a
+/// steady 3–5 % CPU for one 6 pt dot. A layer animation runs in the window
+/// server instead and costs this process nothing between frames.
+private struct PulsingDot: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = PulseView()
+        view.wantsLayer = true
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class PulseView: NSView {
+        private let dot = CALayer()
+
+        override func makeBackingLayer() -> CALayer {
+            let layer = CALayer()
+            dot.backgroundColor = NSColor.white.cgColor
+            layer.addSublayer(dot)
+            return layer
+        }
+
+        override func layout() {
+            super.layout()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            dot.frame = bounds
+            dot.cornerRadius = min(bounds.width, bounds.height) / 2
+            CATransaction.commit()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            dot.removeAnimation(forKey: "pulse")
+            guard window != nil else { return }
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1
+            pulse.toValue = 0.45
+            pulse.duration = 1.1
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            dot.add(pulse, forKey: "pulse")
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
 

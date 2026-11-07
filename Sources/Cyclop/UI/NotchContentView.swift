@@ -108,6 +108,10 @@ struct NotchContentView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    // Moving along the dots swaps the line outright: a
+                    // crossfade left two names drawn over each other.
+                    .id(caption)
+                    .transaction { $0.animation = nil }
                     .padding(.horizontal, 12)
                     .frame(width: notch.width + activity.wingWidth, height: NotchGeometry.activityCaptionHeight, alignment: .top)
                     .transition(.opacity)
