@@ -239,7 +239,7 @@ final class ClaudeAXReader: @unchecked Sendable {
 
     private static let walkedRoles: Set<String> = ["AXButton", "AXCheckBox", "AXLink", "AXStaticText", "AXHeading", "AXImage"]
     private static let walkCap = 2500
-    private static let nodeKeys = [kAXRoleAttribute, kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXChildrenAttribute] as CFArray
+    private static let nodeKeys: [String] = [kAXRoleAttribute, kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXChildrenAttribute]
 
     /// Every control's label and every short text on the page. Long texts
     /// are chat content: skipped, never kept.
@@ -256,7 +256,7 @@ final class ClaudeAXReader: @unchecked Sendable {
             if visited % 50 == 0, Date() > deadline { break }
             AXUIElementSetMessagingTimeout(element, Self.timeout)
             var raw: CFArray?
-            let error = AXUIElementCopyMultipleAttributeValues(element, Self.nodeKeys, AXCopyMultipleAttributeOptions(rawValue: 0), &raw)
+            let error = AXUIElementCopyMultipleAttributeValues(element, Self.nodeKeys as CFArray, AXCopyMultipleAttributeOptions(rawValue: 0), &raw)
             if error == .cannotComplete { break }
             guard error == .success, let values = raw as? [AnyObject], values.count == 5 else { continue }
             let role = values[0] as? String ?? ""
@@ -299,13 +299,13 @@ final class ClaudeAXReader: @unchecked Sendable {
 
     // MARK: - Helpers
 
-    private static let labelKeys = [kAXTitleAttribute, kAXDescriptionAttribute, kAXHelpAttribute] as CFArray
+    private static let labelKeys: [String] = [kAXTitleAttribute, kAXDescriptionAttribute, kAXHelpAttribute]
 
     /// Title, then description, then help: whichever the page filled in.
     private func label(_ element: AXUIElement) -> String? {
         AXUIElementSetMessagingTimeout(element, Self.timeout)
         var raw: CFArray?
-        guard AXUIElementCopyMultipleAttributeValues(element, Self.labelKeys, AXCopyMultipleAttributeOptions(rawValue: 0), &raw) == .success,
+        guard AXUIElementCopyMultipleAttributeValues(element, Self.labelKeys as CFArray, AXCopyMultipleAttributeOptions(rawValue: 0), &raw) == .success,
               let values = raw as? [AnyObject]
         else { return nil }
         for item in values {
