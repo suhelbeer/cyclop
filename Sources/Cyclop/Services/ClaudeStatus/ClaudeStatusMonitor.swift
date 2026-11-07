@@ -350,16 +350,23 @@ final class ClaudeStatusMonitor: ObservableObject {
 
     // MARK: - Acting (the user's click only)
 
-    /// Raises the window, switching desktops if it is on another one. The
-    /// same jump the Windows tab makes; nothing inside the page is touched.
+    /// Goes to the window. One that is part of an arranged strip is scrolled
+    /// to the middle of the screen and focused there; any other is raised,
+    /// switching desktops if it is on another one, the same jump the Windows
+    /// tab makes. Nothing inside the page is touched.
     func jump(to id: CGWindowID) {
         guard let pid, let window = windows.first(where: { $0.id == id }) else { return }
         bannerWork?.cancel()
         banner = nil
-        WindowFocus.raise(AttachedWindow(
-            id: id, pid: pid, bundleID: WindowStore.claudeBundleID, appName: "Claude",
-            title: window.title, frame: window.frame, isOnScreen: true
-        ))
+        let strip = WindowStrip.shared
+        if strip.index(of: id) != nil {
+            strip.focus(on: id, center: true)
+        } else {
+            WindowFocus.raise(AttachedWindow(
+                id: id, pid: pid, bundleID: WindowStore.claudeBundleID, appName: "Claude",
+                title: window.title, frame: window.frame, isOnScreen: true
+            ))
+        }
         requestRead(after: 0.8)
     }
 
