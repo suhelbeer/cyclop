@@ -42,7 +42,7 @@ struct ToolRegistryTests {
     @Test func shippedIdsStayPut() {
         let ids = Set(ToolRegistry.makeAll().map(\.id.rawValue))
         for shipped in ["media", "shelf", "clipboard", "snippets", "calendar", "translate",
-                        "notes", "currency", "teleprompter", "utilities", "settings"] {
+                        "notes", "currency", "teleprompter", "utilities", "settings", "recents"] {
             #expect(ids.contains(shipped))
         }
     }

@@ -14,12 +14,18 @@ struct ShelfDragSource: NSViewRepresentable {
     var urls: () -> [URL]
     var onClick: (NSEvent.ModifierFlags) -> Void
     var onDoubleClick: () -> Void
+    /// What the receiving app may do with the dragged files. The shelf holds
+    /// its own references, so it lets a drop move them; a list of files that
+    /// live elsewhere (Recent) offers copies only, so a slip onto a Finder
+    /// folder never takes a file out of Downloads.
+    var operations: NSDragOperation = [.copy, .move, .link, .generic]
 
     func makeNSView(context: Context) -> DragView {
         let view = DragView()
         view.urls = urls
         view.onClick = onClick
         view.onDoubleClick = onDoubleClick
+        view.operations = operations
         return view
     }
 
@@ -27,12 +33,14 @@ struct ShelfDragSource: NSViewRepresentable {
         view.urls = urls
         view.onClick = onClick
         view.onDoubleClick = onDoubleClick
+        view.operations = operations
     }
 
     final class DragView: NSView, NSDraggingSource {
         var urls: () -> [URL] = { [] }
         var onClick: (NSEvent.ModifierFlags) -> Void = { _ in }
         var onDoubleClick: () -> Void = {}
+        var operations: NSDragOperation = [.copy, .move, .link, .generic]
 
         private var mouseDownPoint: NSPoint?
         private var dragging = false
@@ -87,7 +95,7 @@ struct ShelfDragSource: NSViewRepresentable {
             _ session: NSDraggingSession,
             sourceOperationMaskFor context: NSDraggingContext
         ) -> NSDragOperation {
-            context == .outsideApplication ? [.copy, .move, .link, .generic] : []
+            context == .outsideApplication ? operations : []
         }
     }
 }

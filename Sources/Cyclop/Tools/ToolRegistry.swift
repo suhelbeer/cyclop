@@ -11,6 +11,7 @@ enum ToolRegistry {
             WindowsTool(),
             MusicTool(),
             ShelfTool(),
+            RecentFilesTool(),
             ClipboardTool(),
             ClaudeStatusTool(),
             SnippetsTool(),

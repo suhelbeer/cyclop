@@ -5,6 +5,7 @@
 /* Tabs */
 "Music" = "Music";
 "Shelf" = "Shelf";
+"Recent" = "Recent";
 "Clipboard" = "Clipboard";
 "Snippets" = "Snippets";
 "Calendar" = "Calendar";
@@ -53,6 +54,9 @@
 "Open" = "Open";
 "Show in Finder" = "Show in Finder";
 "Remove from Shelf" = "Remove from Shelf";
+
+/* Recent */
+"Nothing recent yet" = "Nothing recent yet";
 
 /* Media */
 "No artwork" = "No artwork";
