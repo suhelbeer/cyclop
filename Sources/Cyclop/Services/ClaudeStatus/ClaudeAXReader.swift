@@ -52,6 +52,8 @@ final class ClaudeAXReader: @unchecked Sendable {
     /// Windows where the button search finds nothing the rules know (the
     /// main window's search came back empty in the probe): walked instead.
     private var walked: Set<CGWindowID> = []
+    /// Closed windows Claude keeps listed (see `UndrawnWindows`).
+    private var undrawn = UndrawnWindows()
     private var lastSearch = Date.distantPast
     private var busy = false
 
@@ -74,6 +76,7 @@ final class ClaudeAXReader: @unchecked Sendable {
             webAreas.removeAll()
             real.removeAll()
             walked.removeAll()
+            undrawn = UndrawnWindows()
             lastSearch = .distantPast
         }
     }
@@ -89,12 +92,20 @@ final class ClaudeAXReader: @unchecked Sendable {
             webAreas.removeAll()
             real.removeAll()
             walked.removeAll()
+            undrawn = UndrawnWindows()
             lastSearch = .distantPast
         }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, Self.timeout)
 
-        let windows = standardWindows(pid: pid)
+        // A closed window Claude keeps listed would otherwise be found and
+        // read like a window on another desktop.
+        let listed = standardWindows(pid: pid)
+        let offScreen = Set(listed.filter { !$0.onScreen }.map(\.id))
+        for id in undrawn.due(offScreen: offScreen, now: start) {
+            undrawn.record(id, draws: UndrawnWindows.draws(id), now: start)
+        }
+        let windows = listed.filter { !undrawn.hidden.contains($0.id) }
         locate(windows.map(\.id), app: app, pid: pid)
 
         var readings: [ClaudeWindowReading] = []
@@ -123,9 +134,9 @@ final class ClaudeAXReader: @unchecked Sendable {
 
     /// Claude's ordinary windows on every desktop, from the window server.
     /// Sizes rule out the invisible helper windows Electron keeps around.
-    private func standardWindows(pid: pid_t) -> [(id: CGWindowID, frame: CGRect)] {
+    private func standardWindows(pid: pid_t) -> [(id: CGWindowID, frame: CGRect, onScreen: Bool)] {
         let info = (CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
-        var found: [(CGWindowID, CGRect)] = []
+        var found: [(CGWindowID, CGRect, Bool)] = []
         for entry in info {
             guard (entry[kCGWindowOwnerPID as String] as? Int32) == pid,
                   (entry[kCGWindowLayer as String] as? Int) == 0,
@@ -134,7 +145,7 @@ final class ClaudeAXReader: @unchecked Sendable {
                   let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
                   bounds.width >= 320, bounds.height >= 240
             else { continue }
-            found.append((CGWindowID(number), bounds))
+            found.append((CGWindowID(number), bounds, entry[kCGWindowIsOnscreen as String] as? Bool ?? false))
         }
         return found
     }

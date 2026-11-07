@@ -174,6 +174,7 @@ struct ClaudeStatusPane: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 4) {
             switchRow("Keep the dots up when every window is quiet", isOn: $monitor.alwaysShowDots)
+            switchRow("Read Claude's notifications into the dots", isOn: $monitor.readsNotifications)
             HStack(spacing: 8) {
                 switchRow("Show the name when a window needs you", isOn: $monitor.bannersEnabled)
                 Spacer(minLength: 0)
@@ -234,6 +235,7 @@ struct ClaudeStatusPane: View {
 
         var body: some View {
             Button(action: jump) {
+                VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 8) {
                     ClaudeDot(activity: window.activity)
                         .frame(width: 10)
@@ -251,8 +253,20 @@ struct ClaudeStatusPane: View {
                             .foregroundStyle(Theme.tertiary)
                     }
                 }
+                .frame(height: 20)
+                if let note = window.note, !note.isEmpty {
+                    // Claude's last notification about this window.
+                    Text(note)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.leading, 18)
+                        .padding(.bottom, 3)
+                }
+                }
                 .padding(.horizontal, 8)
-                .frame(height: 22)
+                .frame(minHeight: 22)
                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(hovered ? Theme.surface : .clear))
                 .contentShape(Rectangle())
             }

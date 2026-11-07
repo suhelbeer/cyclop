@@ -12,6 +12,9 @@ struct ClaudeWindowStatus: Identifiable, Equatable {
     var matched: String?
     /// Threads waiting on you, as Claude counts them.
     var waiting: Int?
+    /// The message of Claude's last notification about this window, until
+    /// you come back to it.
+    var note: String?
 
     var name: String { title.isEmpty ? "Claude" : title }
 
@@ -70,14 +73,36 @@ final class ClaudeStatusMonitor: ObservableObject {
         didSet { UserDefaults.standard.set(alwaysShowDots, forKey: Self.alwaysKey) }
     }
 
+    /// Whether Claude's notification banners are read for the dots: their
+    /// message becomes the window's latest note. On by default.
+    @Published var readsNotifications: Bool {
+        didSet {
+            UserDefaults.standard.set(readsNotifications, forKey: Self.notificationsKey)
+            guard running else { return }
+            if readsNotifications {
+                bannerWatcher.start()
+            } else {
+                bannerWatcher.stop()
+                notes.removeAll()
+                refreshNotes()
+            }
+        }
+    }
+
     private static let bannersKey = "claudeStatus.banners"
     private static let alwaysKey = "claudeStatus.alwaysShow"
+    private static let notificationsKey = "claudeStatus.notifications"
     static let bannerDuration: TimeInterval = 2.5
+    /// A notification's message is longer to read than a name.
+    static let noteDuration: TimeInterval = 4
     /// Closest two reads may start, however busy Claude's events are.
     static let minInterval: TimeInterval = 1
     static let fallbackInterval: TimeInterval = 2.5
 
     private let reader = ClaudeAXReader()
+    private let bannerWatcher = ClaudeBannerWatcher()
+    /// Claude's last notification per window, cleared when you focus it.
+    private var notes: [CGWindowID: ClaudeBanner] = [:]
     private var rules = ClaudeStatusRules.defaults.compiled()
     private var trackers: [CGWindowID: ClaudeActivityTracker] = [:]
     private var titles: [CGWindowID: String] = [:]
@@ -98,6 +123,8 @@ final class ClaudeStatusMonitor: ObservableObject {
     init() {
         bannersEnabled = UserDefaults.standard.object(forKey: Self.bannersKey) as? Bool ?? true
         alwaysShowDots = UserDefaults.standard.object(forKey: Self.alwaysKey) as? Bool ?? true
+        readsNotifications = UserDefaults.standard.object(forKey: Self.notificationsKey) as? Bool ?? true
+        bannerWatcher.onBanner = { [weak self] banner in self?.notified(banner) }
     }
 
     // MARK: - Lifecycle
@@ -138,6 +165,7 @@ final class ClaudeStatusMonitor: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         fallback = timer
 
+        if readsNotifications { bannerWatcher.start() }
         attach()
     }
 
@@ -148,6 +176,7 @@ final class ClaudeStatusMonitor: ObservableObject {
         tokens.removeAll()
         fallback?.invalidate()
         fallback = nil
+        bannerWatcher.stop()
         detach(restore: true)
     }
 
@@ -210,6 +239,7 @@ final class ClaudeStatusMonitor: ObservableObject {
         scheduledAt = nil
         trackers.removeAll()
         titles.removeAll()
+        notes.removeAll()
         windows = []
         banner = nil
         reader.forget()
@@ -328,14 +358,18 @@ final class ClaudeStatusMonitor: ObservableObject {
             }
             // Claude blanks a title now and then; keep the name it had.
             if !window.title.isEmpty { titles[window.id] = window.title }
+            // Back at the window: its notification has been seen.
+            if focused { notes[window.id] = nil }
             next.append(ClaudeWindowStatus(
                 id: window.id, title: titles[window.id] ?? window.title, frame: window.frame,
-                activity: tracker.shown, matched: window.matched, waiting: tracker.waiting
+                activity: tracker.shown, matched: window.matched, waiting: tracker.waiting,
+                note: notes[window.id]?.body
             ))
         }
         let present = Set(next.map(\.id))
         trackers = trackers.filter { present.contains($0.key) }
         titles = titles.filter { present.contains($0.key) }
+        notes = notes.filter { present.contains($0.key) }
         next.sort { a, b in
             let order = a.name.localizedStandardCompare(b.name)
             return order == .orderedSame ? a.id < b.id : order == .orderedAscending
@@ -351,14 +385,48 @@ final class ClaudeStatusMonitor: ObservableObject {
         }
     }
 
-    private func showBanner(_ id: CGWindowID) {
+    // MARK: - Notifications
+
+    /// A Claude banner just showed. It names a project, which is the title
+    /// of that project's window; anything else is about the main window.
+    private func notified(_ banner: ClaudeBanner) {
+        guard running, readsNotifications else { return }
+        guard let id = Self.window(for: banner.title, in: windows.map { ($0.id, $0.name) }) else { return }
+        notes[id] = banner
+        refreshNotes()
+        if bannersEnabled { showBanner(id, for: Self.noteDuration) }
+        // The window's state has likely just changed too.
+        requestRead(after: 0.3)
+    }
+
+    /// The window a notification titled `title` is about: the window with
+    /// that name, or else the main "Claude" window.
+    static func window(for title: String, in windows: [(id: CGWindowID, name: String)]) -> CGWindowID? {
+        let wanted = title.trimmingCharacters(in: .whitespaces)
+        if let exact = windows.first(where: { $0.name == wanted }) { return exact.id }
+        if let loose = windows.first(where: { $0.name.localizedCaseInsensitiveCompare(wanted) == .orderedSame }) {
+            return loose.id
+        }
+        return windows.first { $0.name == "Claude" }?.id
+    }
+
+    private func refreshNotes() {
+        let next = windows.map { window -> ClaudeWindowStatus in
+            var window = window
+            window.note = notes[window.id]?.body
+            return window
+        }
+        if next != windows { windows = next }
+    }
+
+    private func showBanner(_ id: CGWindowID, for duration: TimeInterval = bannerDuration) {
         bannerWork?.cancel()
         banner = id
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.banner = nil }
         }
         bannerWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.bannerDuration, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
 
     // MARK: - Acting (the user's click only)
@@ -409,9 +477,11 @@ final class ClaudeStatusMonitor: ObservableObject {
     /// the dot under the pointer.
     var caption: String? {
         if let banner, let window = windows.first(where: { $0.id == banner }) {
+            if let note = window.note, !note.isEmpty { return "\(window.name): \(note)" }
             return localized("%@ needs you", window.name)
         }
         if let hovered, let window = windows.first(where: { $0.id == hovered }) {
+            if let note = window.note, !note.isEmpty { return "\(window.name): \(note)" }
             return window.summary
         }
         return nil
