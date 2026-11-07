@@ -83,7 +83,7 @@ final class WindowStrip: ObservableObject {
     /// One operation at a time, in order: a key held down queues steps
     /// faster than windows can move, and they are folded together.
     private enum Op {
-        case arrange([AttachedWindow]), step(Int), focus(CGWindowID), move(CGWindowID, Int), cycleWidth, release
+        case arrange([AttachedWindow]), step(Int), focus(CGWindowID, center: Bool), move(CGWindowID, Int), cycleWidth, release
         /// End of a swipe: where the view stopped, and where the windows are.
         case rest(CGFloat, [CGWindowID: CGRect])
         case center
@@ -119,7 +119,9 @@ final class WindowStrip: ObservableObject {
 
     func release() { enqueue(.release) }
     func step(_ delta: Int) { if isArranged { enqueue(.step(delta)) } }
-    func focus(on id: CGWindowID) { if isArranged { enqueue(.focus(id)) } }
+    /// Scrolls to a column and focuses it. `center` puts it in the middle of
+    /// the screen rather than just far enough to show it whole.
+    func focus(on id: CGWindowID, center: Bool = false) { if isArranged { enqueue(.focus(id, center: center)) } }
     func cycleWidth() { if isArranged { enqueue(.cycleWidth) } }
     /// Puts the focused window in the middle, its neighbours showing either side.
     func center() { if isArranged { enqueue(.center) } }
@@ -197,7 +199,7 @@ final class WindowStrip: ObservableObject {
                     }
                     await performStep(total)
                 case .arrange(let list): await performArrange(list)
-                case .focus(let id): await performFocus(id)
+                case .focus(let id, let center): await performFocus(id, center: center)
                 case .move(let id, let index): await performMove(id, to: index)
                 case .cycleWidth: await performCycleWidth()
                 case .release: await performRelease()
@@ -381,10 +383,10 @@ final class WindowStrip: ObservableObject {
         await layout()
     }
 
-    private func performFocus(_ id: CGWindowID) async {
+    private func performFocus(_ id: CGWindowID, center: Bool) async {
         guard let index = index(of: id) else { return }
         focus = index
-        await layout()
+        await layout(center: center)
         raiseFocused()
     }
 

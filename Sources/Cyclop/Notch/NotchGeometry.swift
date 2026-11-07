@@ -73,6 +73,9 @@ struct NotchGeometry {
         rowCenterGap + 2 * Self.rowSideWidth(icons: max(left, right))
     }
 
+    /// The line a live activity drops under the folded notch.
+    static let activityCaptionHeight: CGFloat = 20
+
     // MARK: - The body below the row
 
     /// The tool's name and counter, between the row and the pane.

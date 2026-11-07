@@ -233,11 +233,31 @@ final class NotchScreenPanel {
                 }
             }
             .store(in: &cancellables)
+        // A live activity appearing, going or changing its line resizes the
+        // folded shape, and the wing has to take clicks the moment it shows.
+        vm.activityChanges
+            .sink { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    withAnimation(Theme.openAnimation) { self.state.objectWillChange.send() }
+                    if !self.state.isOpen { self.applyActiveRect(open: false) }
+                }
+            }
+            .store(in: &cancellables)
         vm.$hiddenTabs
             .dropFirst()
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
-                    DispatchQueue.main.async { self?.refreshOpenRects() }
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        self.refreshOpenRects()
+                        // Switching off the tool with the live activity
+                        // takes its wing away with it.
+                        if !self.state.isOpen {
+                            self.state.objectWillChange.send()
+                            self.applyActiveRect(open: false)
+                        }
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -410,8 +430,10 @@ final class NotchScreenPanel {
         // The open size is the pill's or the current tab's, not a constant: a
         // rect cut for the pill would leave the body below it visible but
         // untouchable.
-        let size = open ? state.openBodySize : geometry.collapsedSize
-        let offset = open ? state.openBodyOffset : 0
+        // Folded with a live activity, the wing beside the camera takes
+        // clicks too (a dot jumps to its window), but not the line under it.
+        let size = open ? state.openBodySize : state.collapsedActiveSize
+        let offset = open ? state.openBodyOffset : state.collapsedBodyOffset
         var rect = geometry.contentRect(for: size, offsetX: offset)
         if open {
             // Slack so the concave shoulders stay grabbable. Never while

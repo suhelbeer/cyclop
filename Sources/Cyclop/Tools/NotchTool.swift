@@ -35,6 +35,15 @@ enum ToolBodySize: Equatable {
     static let fixed: [ToolBodySize] = [.compact, .standard, .tall, .wide]
 }
 
+/// Something a tool shows in the folded notch, like a live activity: a short
+/// wing to the left of the camera, and now and then a line dropped under it.
+struct NotchActivity: Equatable {
+    /// Width of the wing left of the camera.
+    var wingWidth: CGFloat
+    /// A line under the notch, for a moment. Nil when there is none.
+    var caption: String?
+}
+
 /// What the panel hands a tool when it draws the tool's pane.
 @MainActor
 struct ToolContext {
@@ -92,6 +101,12 @@ protocol NotchTool: AnyObject {
     /// folded). Return true to take it; the first visible tool that does wins.
     func notchScrolled(_ event: NSEvent) -> Bool
 
+    /// What the folded notch shows for this tool right now, if anything. The
+    /// first visible tool with one wins.
+    var activity: NotchActivity? { get }
+    /// Fires when `activity` may have changed.
+    var activityChanges: AnyPublisher<Void, Never> { get }
+
     // MARK: Lifecycle (all optional)
     /// Background work. Called when the tool is on and the app starts, or when
     /// it is switched back on.
@@ -110,6 +125,9 @@ protocol NotchTool: AnyObject {
     /// Small trailing item in the header strip (a counter, a date). Optional.
     func headerAccessory() -> AnyView
     func pane(_ context: ToolContext) -> AnyView
+    /// The wing's contents, drawn `activity.wingWidth` wide and one notch
+    /// tall. Only asked for while `activity` is not nil.
+    func activityWing() -> AnyView
 }
 
 extension NotchTool {
@@ -125,6 +143,9 @@ extension NotchTool {
     var acceptsFileDrops: Bool { false }
     func acceptDrop(_ urls: [URL]) -> Bool { false }
     func notchScrolled(_ event: NSEvent) -> Bool { false }
+    var activity: NotchActivity? { nil }
+    var activityChanges: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
+    func activityWing() -> AnyView { AnyView(EmptyView()) }
 
     func start() {}
     func stop() {}

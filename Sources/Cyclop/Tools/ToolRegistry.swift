@@ -13,6 +13,7 @@ enum ToolRegistry {
             ShelfTool(),
             RecentFilesTool(),
             ClipboardTool(),
+            ClaudeStatusTool(),
             SnippetsTool(),
             CalendarTool(),
             TranslateTool(),

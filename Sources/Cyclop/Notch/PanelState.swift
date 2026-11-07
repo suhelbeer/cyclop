@@ -79,9 +79,36 @@ final class PanelState: ObservableObject {
     /// What counts as "on the panel" while it is open.
     var openHoverRect: CGRect { geometry.hoverRect(for: openBodySize, offsetX: openBodyOffset) }
 
+    /// What the folded notch shows beside the camera, if anything.
+    var activity: NotchActivity? { vm.activityTool?.activity }
+
+    /// The folded shape: the notch, or the notch with a tool's wing to the
+    /// left of the camera and maybe a line under both. One notch tall
+    /// without the line, so a drawn notch grows to full height for it: an
+    /// 8 pt strip has no room for a dot.
+    var collapsedBodySize: CGSize {
+        guard let activity else { return geometry.collapsedSize }
+        return CGSize(
+            width: geometry.notchSize.width + activity.wingWidth,
+            height: geometry.notchSize.height + (activity.caption == nil ? 0 : NotchGeometry.activityCaptionHeight)
+        )
+    }
+
+    /// The wing is on the left, so the folded shape sits left of the notch's
+    /// centre by half of it.
+    var collapsedBodyOffset: CGFloat { -(activity?.wingWidth ?? 0) / 2 }
+
+    /// The part of the folded shape that takes clicks: the notch and the
+    /// wing. Never the line under them, which lies over the top of whatever
+    /// window is below and is only there to be read.
+    var collapsedActiveSize: CGSize {
+        guard activity != nil else { return geometry.collapsedSize }
+        return CGSize(width: collapsedBodySize.width, height: geometry.notchSize.height)
+    }
+
     /// Size of the visible body for the current state.
-    var bodySize: CGSize { isActive ? openBodySize : geometry.collapsedSize }
-    var bodyOffset: CGFloat { isActive ? openBodyOffset : 0 }
+    var bodySize: CGSize { isActive ? openBodySize : collapsedBodySize }
+    var bodyOffset: CGFloat { isActive ? openBodyOffset : collapsedBodyOffset }
 
     /// Hover and click both land here. A tab that types takes the keyboard
     /// either way: showing a field one cannot type into is worse than briefly
