@@ -64,7 +64,14 @@ final class ClaudeStatusMonitor: ObservableObject {
         didSet { UserDefaults.standard.set(bannersEnabled, forKey: Self.bannersKey) }
     }
 
+    /// Whether the dots stay up while every window is quiet. On by default:
+    /// dots that vanished whenever Claude went quiet read as broken.
+    @Published var alwaysShowDots: Bool {
+        didSet { UserDefaults.standard.set(alwaysShowDots, forKey: Self.alwaysKey) }
+    }
+
     private static let bannersKey = "claudeStatus.banners"
+    private static let alwaysKey = "claudeStatus.alwaysShow"
     static let bannerDuration: TimeInterval = 2.5
     /// Closest two reads may start, however busy Claude's events are.
     static let minInterval: TimeInterval = 1
@@ -90,6 +97,7 @@ final class ClaudeStatusMonitor: ObservableObject {
 
     init() {
         bannersEnabled = UserDefaults.standard.object(forKey: Self.bannersKey) as? Bool ?? true
+        alwaysShowDots = UserDefaults.standard.object(forKey: Self.alwaysKey) as? Bool ?? true
     }
 
     // MARK: - Lifecycle
@@ -389,10 +397,12 @@ final class ClaudeStatusMonitor: ObservableObject {
 
     // MARK: - For the notch
 
-    /// Whether the folded notch has anything to show: some window is working,
-    /// waiting or done, or a name is being shown.
-    var hasNews: Bool {
-        windows.contains { $0.activity.isNotable } || banner != nil
+    /// Whether the folded notch shows the dots: always while Claude has
+    /// windows (the default), or only while some window is working, waiting
+    /// or done, or a name is being shown.
+    var showsDots: Bool {
+        guard !windows.isEmpty else { return false }
+        return alwaysShowDots || windows.contains { $0.activity.isNotable } || banner != nil
     }
 
     /// The line under the notch: the window that just started waiting, or

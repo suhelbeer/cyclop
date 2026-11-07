@@ -1,9 +1,9 @@
 import Combine
 import SwiftUI
 
-/// Claude desktop app status in the notch: a dot per Claude window beside
-/// the camera while any of them is working, waiting on you or finished, and
-/// a pane listing them all. A click on a dot or a row jumps to the window.
+/// Claude desktop app status in the notch: a dot per Claude window left of
+/// the camera (by default whenever Claude is open, optionally only while one
+/// is working, waiting on you or finished), and a pane listing them all. A click on a dot or a row jumps to the window.
 ///
 /// Read-only towards Claude; see `ClaudeStatusMonitor` for the rules.
 @MainActor
@@ -23,7 +23,7 @@ final class ClaudeStatusTool: NotchTool {
     // MARK: - Live activity
 
     var activity: NotchActivity? {
-        guard monitor.hasNews, !monitor.windows.isEmpty else { return nil }
+        guard monitor.showsDots else { return nil }
         return NotchActivity(wingWidth: ClaudeDots.width(for: monitor.windows.count), caption: monitor.caption)
     }
 

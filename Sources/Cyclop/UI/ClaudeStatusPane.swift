@@ -172,23 +172,32 @@ struct ClaudeStatusPane: View {
     }
 
     private var footer: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switchRow("Keep the dots up when every window is quiet", isOn: $monitor.alwaysShowDots)
+            HStack(spacing: 8) {
+                switchRow("Show the name when a window needs you", isOn: $monitor.bannersEnabled)
+                Spacer(minLength: 0)
+                if monitor.rulesBroken {
+                    Text("Rules file broken, using defaults")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.orange)
+                } else if monitor.problem == .paused {
+                    Text("Paused")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.tertiary)
+                }
+            }
+        }
+    }
+
+    private func switchRow(_ title: LocalizedStringKey, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 8) {
-            Toggle("", isOn: $monitor.bannersEnabled)
+            Toggle("", isOn: isOn)
                 .toggleStyle(NotchToggleStyle())
                 .labelsHidden()
-            Text("Show the name when a window needs you")
+            Text(title)
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.secondary)
-            Spacer(minLength: 0)
-            if monitor.rulesBroken {
-                Text("Rules file broken, using defaults")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.orange)
-            } else if monitor.problem == .paused {
-                Text("Paused")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.tertiary)
-            }
         }
     }
 
