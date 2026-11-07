@@ -91,16 +91,16 @@ struct NotchContentView: View {
     // MARK: - Live activity
     //
     // Folded, a tool may show something beside the camera: Claude's status
-    // dots. The wing sits right of the notch, the line under both. The panel
+    // dots. The wing sits left of the notch, the line under both. The panel
     // opening covers it with the icon row, so it is drawn only folded.
 
     private func activityLayer(_ tool: any NotchTool, _ activity: NotchActivity) -> some View {
         let notch = panel.geometry.notchSize
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Color.clear.frame(width: notch.width)
                 tool.activityWing()
                     .frame(width: activity.wingWidth, height: notch.height)
+                Color.clear.frame(width: notch.width)
             }
             if let caption = activity.caption {
                 Text(caption)

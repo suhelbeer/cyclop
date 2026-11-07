@@ -3,25 +3,27 @@ import SwiftUI
 
 // MARK: - Dots beside the camera
 
-/// One dot per Claude window, in the folded notch's wing. Hover one for its
+/// One dot per Claude window, in the folded notch's wing left of the camera.
+/// Hover one for its
 /// name and state under the notch; click it to jump to the window.
 struct ClaudeDots: View {
     @ObservedObject var monitor: ClaudeStatusMonitor
 
-    /// Black between the camera and the first dot. Wider than the 6 pt the
-    /// notch's own hover target reaches past its edge, so resting on the first
-    /// dot never opens the panel.
-    static let leading: CGFloat = 12
+    /// Black between the last dot and the camera. Wider than the 6 pt the
+    /// notch's own hover target reaches past its edge, so resting on the
+    /// dot nearest the camera never opens the panel.
+    static let inner: CGFloat = 12
     static let cell: CGFloat = 14
-    static let trailing: CGFloat = 8
+    /// Black before the first dot, at the outer end of the wing.
+    static let outer: CGFloat = 8
 
     static func width(for count: Int) -> CGFloat {
-        leading + CGFloat(count) * cell + trailing
+        outer + CGFloat(count) * cell + inner
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: Self.leading)
+            Spacer(minLength: 0)
             ForEach(monitor.windows) { window in
                 Button {
                     monitor.jump(to: window.id)
@@ -40,7 +42,7 @@ struct ClaudeDots: View {
                     }
                 }
             }
-            Spacer(minLength: 0)
+            Color.clear.frame(width: Self.inner)
         }
     }
 }

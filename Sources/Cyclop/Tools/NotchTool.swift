@@ -36,9 +36,9 @@ enum ToolBodySize: Equatable {
 }
 
 /// Something a tool shows in the folded notch, like a live activity: a short
-/// wing to the right of the camera, and now and then a line dropped under it.
+/// wing to the left of the camera, and now and then a line dropped under it.
 struct NotchActivity: Equatable {
-    /// Width of the wing beside the camera.
+    /// Width of the wing left of the camera.
     var wingWidth: CGFloat
     /// A line under the notch, for a moment. Nil when there is none.
     var caption: String?

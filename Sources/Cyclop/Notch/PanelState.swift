@@ -83,7 +83,7 @@ final class PanelState: ObservableObject {
     var activity: NotchActivity? { vm.activityTool?.activity }
 
     /// The folded shape: the notch, or the notch with a tool's wing to the
-    /// right of the camera and maybe a line under both. One notch tall
+    /// left of the camera and maybe a line under both. One notch tall
     /// without the line, so a drawn notch grows to full height for it: an
     /// 8 pt strip has no room for a dot.
     var collapsedBodySize: CGSize {
@@ -94,9 +94,9 @@ final class PanelState: ObservableObject {
         )
     }
 
-    /// The wing is on one side, so the folded shape sits off the notch's
+    /// The wing is on the left, so the folded shape sits left of the notch's
     /// centre by half of it.
-    var collapsedBodyOffset: CGFloat { (activity?.wingWidth ?? 0) / 2 }
+    var collapsedBodyOffset: CGFloat { -(activity?.wingWidth ?? 0) / 2 }
 
     /// The part of the folded shape that takes clicks: the notch and the
     /// wing. Never the line under them, which lies over the top of whatever
