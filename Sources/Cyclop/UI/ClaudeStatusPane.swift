@@ -4,8 +4,8 @@ import SwiftUI
 // MARK: - Dots beside the camera
 
 /// One dot per Claude window, in the folded notch's wing left of the camera.
-/// Hover one for its
-/// name and state under the notch; click it to jump to the window.
+/// Hover one for its name and state under the notch; click it to jump to the
+/// window.
 struct ClaudeDots: View {
     @ObservedObject var monitor: ClaudeStatusMonitor
 
