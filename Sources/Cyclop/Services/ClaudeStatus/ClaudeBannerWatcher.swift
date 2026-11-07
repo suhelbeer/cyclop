@@ -30,7 +30,7 @@ struct ClaudeBanner: Equatable, Sendable {
 @MainActor
 final class ClaudeBannerWatcher {
     static let notificationCenterID = "com.apple.notificationcenterui"
-    static let appName = "Claude"
+    nonisolated static let appName = "Claude"
 
     var onBanner: ((ClaudeBanner) -> Void)?
 
